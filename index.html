@@ -26,6 +26,8 @@ header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px 
 nav{display:flex;gap:2px;margin-left:auto;flex-wrap:wrap}
 nav button{border:0;background:transparent;color:var(--mute);font:inherit;font-weight:600;padding:8px 11px;border-radius:8px;cursor:pointer}
 nav button.on{background:var(--navy-soft);color:var(--navy)}
+.morewrap{position:relative}#navMore{position:absolute;right:0;top:100%;margin-top:4px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px;display:flex;flex-direction:column;z-index:8;box-shadow:0 6px 18px rgba(0,0,0,.12);min-width:130px}
+#navMore[hidden]{display:none}#navMore button{text-align:left}
 .examsel{display:flex;align-items:center;gap:8px;padding:6px 0 10px;color:var(--mute);font-size:13px;flex-wrap:wrap}
 select,input,textarea{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 9px}
 textarea{width:100%;resize:vertical}
@@ -38,6 +40,15 @@ h2{font-size:16px;margin:0 0 10px} h3{font-size:14px;margin:0 0 6px}
 .btn.gray{background:var(--navy-soft);color:var(--navy)}
 .btn.red{background:var(--bad-soft);color:var(--bad)}
 .btn.sm{padding:4px 10px;font-size:13px}
+.btn.big{padding:11px 22px;font-size:15px}
+.seg{display:inline-flex;background:var(--navy-soft);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg label{cursor:pointer}.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg span{display:block;padding:6px 14px;border-radius:8px;font-weight:600;color:var(--mute);font-size:13px}
+.seg input:checked+span{background:var(--card);color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.seg input:focus-visible+span{outline:2px solid var(--navy)}
+.more{display:grid;gap:10px;margin-top:10px;padding:12px 14px;border:1px solid var(--line);border-radius:10px}
+.more .lab{font-size:12px;color:var(--mute);min-width:76px}
+.filebox{border:1px dashed var(--line);border-radius:10px;padding:8px 12px}
 .btn:disabled{opacity:.5;cursor:default}
 .grid20{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:8px}
 .qbox{border:1px solid var(--line);border-radius:8px;padding:6px}
@@ -93,7 +104,8 @@ td.es .eb{border:0;background:transparent;color:var(--navy);cursor:pointer;font-
 <body>
 <header><div class="wrap">
   <div class="top"><div class="brand">KMO/영재고 테스트기<small id="brandSub">이 컴퓨터에서 동작 · AI는 설정한 키로만 호출</small></div><span id="cloudBadge"></span>
-    <nav id="nav"><button data-t="auto" class="on">자동 출제</button><button data-t="make">시험지 만들기</button><button data-t="grade">채점</button><button data-t="result">결과</button><button data-t="print">답안지 인쇄</button><button data-t="exam">정답표</button><button data-t="roster">명단</button><button data-t="books">교재</button><button data-t="set">설정</button></nav></div>
+    <nav id="nav"><button data-t="auto" class="on">출제</button><button data-t="make">시험지</button><button data-t="grade">채점</button><button data-t="result">결과</button><button data-t="books">교재</button>
+      <span class="morewrap"><button id="navMoreBtn" type="button">더보기 ▾</button><span id="navMore" hidden><button data-t="print">답안지 인쇄</button><button data-t="exam">정답표·배점</button><button data-t="roster">명단</button><button data-t="set">설정</button></span></span></nav></div>
   <div class="examsel">시험 <select id="examPick"></select> <span id="examInfo"></span></div>
 </div></header>
 <main class="wrap" id="main"><div class="card" id="boot">불러오는 중…<p class="mute" style="margin:8px 0 0;font-size:13px">이 글만 계속 보이면 지금 화면(폰의 파일 미리보기 등)이 앱의 스크립트를 실행하지 않는 것입니다. 맥북의 크롬이나 사파리에서 파일을 열어 주세요.</p></div><noscript><div class="card"><h2>이 화면에서는 앱이 실행되지 않습니다</h2><p>스크립트가 꺼진 미리보기입니다. 맥북의 크롬이나 사파리에서 파일을 열어 주세요.</p></div></noscript></main>
@@ -448,7 +460,7 @@ async function aiGradeEssay(ex, i, dataURL){
   if (fig) content.push({ type: 'text', text: '문제 그림:' }, imgPart(fig));
   content.push({ type: 'text', text: AE(ex) ? '학생 시험지 스캔(위쪽에 인쇄된 문제, 그 아래와 빈 곳에 학생이 손으로 쓴 풀이):' : '학생 풀이(손글씨 스캔):' }, imgPart(dataURL));
   content.push({ type: 'text', text: `${i+1}번 서술형 채점 (만점 ${ep}점)
-문제: ${p.statement || '(위 문제 그림)'}
+문제: ${p.statement || p.transcribed || '(위 문제 그림)'}
 정답: ${ex.answers[i] || (AE(ex) ? '(증명 문항)' : '')}
 모범 풀이: ${p.solution || '(없음)'}
 채점 기준:
@@ -879,6 +891,14 @@ function paperScanPage(ex, i, fig){
   box(126.5, 14.5, 67, 17, 'border:0.35mm solid #222;border-radius:1mm;');
   ['십', '일'].forEach((t, c) => { text(127.5, 19.5 + c * 6.8 - 2.2, 9, `${t}`, 3, 'text-align:center;font-weight:700;color:#333;', 4.4);
     for (let d = 0; d < 10; d++){ const [cx, cy] = PAPER_ID[c][d]; els.push(`<div class="b" style="left:${cx-R}mm;top:${cy-R}mm;">${d}</div>`); } });
+  if (p.pageImg && fig){   // 올린 시험지: 원래 쪽을 테두리 안에 줄여 넣음
+    els.push(`<div style="position:absolute;left:${PAPER.x0}mm;top:${PAPER.y0}mm;width:${PAPER.x1 - PAPER.x0}mm;height:${PAPER.y1 - PAPER.y0}mm;display:flex;justify-content:center;align-items:flex-start">${fig.replace('<img ', '<img style="max-width:100%;max-height:100%;display:block" ')}</div>`);
+    box(PAPER.x0, PAPER.y0, PAPER.x1 - PAPER.x0, PAPER.y1 - PAPER.y0, 'border:0.3mm solid #999;');
+    const bits = [1, q & 1, (q >> 1) & 1, (q >> 2) & 1, (q >> 3) & 1, 1, (q >> 4) & 1];
+    CODE.forEach(([x, y], k) => box(x, y, 4, 4, bits[k] ? 'background:#000;' : 'border:0.2mm solid #ccc;'));
+    text(72, 286.3, 120, `${esc(ex.course)}  |  ${esc(ex.name)}  ·  ${q} / ${ex.n}`, 2.6, 'color:#888;text-align:right;');
+    return `<div class="page">${els.join('')}</div>`;
+  }
   box(PAPER.x0, PAPER.y0, PAPER.x1 - PAPER.x0, PAPER.y1 - PAPER.y0, 'border:0.35mm solid #222;border-radius:1mm;');
   box(PAPER.x0, PAPER.y0, 22, 8, `background:${navy};border-radius:1mm 0 1mm 0;`);
   text(PAPER.x0, PAPER.y0, 22, `${q}번`, 4.2, 'color:#fff;font-weight:800;text-align:center;', 8);
@@ -950,6 +970,12 @@ async function gradedHTML(ex, nos){
 async function paperHTML(ex, kind, list){
   if (AE(ex) && kind !== 'sol') return paperScanHTML(ex, list || 1);
   if (!list || kind === 'sol') list = [null];
+  if (ex.paperPages && kind !== 'sol'){   // 올린 시험지: 원래 쪽을 그대로(학생 이름은 위에 작게)
+    const pages = []; for (let k = 0; k < ex.paperPages; k++) pages.push(await getImg(`paper:${ex.id}:${k}`));
+    const body = list.map(stu => pages.map(d => `<div class="pp">${stu ? `<div class="nm">${esc(stu.name)} ${esc(stu.no)}번</div>` : ''}<img src="${d}"></div>`).join('')).join('');
+    return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4;margin:0}body{margin:0}.pp{position:relative;width:210mm;height:297mm;break-after:page;overflow:hidden}.pp:last-child{break-after:auto}
+      .pp img{width:210mm;height:297mm;object-fit:contain;display:block}.nm{position:absolute;right:12mm;top:6mm;font:700 11pt 'Apple SD Gothic Neo','Noto Sans KR',sans-serif;background:#fff;padding:1mm 3mm;border:0.3mm solid #999;border-radius:1mm}</style></head><body>${body}</body></html>`;
+  }
   const solved = kind === 'sol', perPage = ex.perPage || 1;
   const blocks = [];
   for (let i = 0; i < ex.n; i++){
@@ -1396,6 +1422,54 @@ async function autoMake(o){
   save();
   return ex;
 }
+// ------------------------------------------------------------ 만든 시험지 올리기
+async function pdfPageImages(file, maxPages = 20, long = 1700){
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), verbosity: 0 }).promise, out = [];
+  for (let p = 1; p <= Math.min(pdf.numPages, maxPages); p++){
+    const pg = await pdf.getPage(p), v1 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: long / Math.max(v1.width, v1.height) });
+    const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+    out.push(c.toDataURL('image/jpeg', 0.82)); }
+  return { imgs: out, total: pdf.numPages };
+}
+async function uploadExam(o, paperFile, solFile){
+  const ae = o.kind === '1', testType = TEST_TYPES.includes(o.testType) ? o.testType : '단원테스트';
+  BUSY = '시험지 읽는 중…'; render();
+  const { imgs, total } = await pdfPageImages(paperFile, 20);
+  if (!imgs.length) throw new Error('시험지 PDF에 쪽이 없습니다');
+  const sol = solFile ? (await pdfPageImages(solFile, 8, 1400)).imgs : [];
+  const n = ae ? imgs.length : (o.n === 20 ? 20 : 10), id = 'e' + Date.now();
+  const essPts = ae ? splitEssay(o.total || 100, imgs.map(() => 1)) : Array(n).fill(0);
+  const ex = fixExam({ id, name: o.title || `${o.course} ${testType}`, autoName: !o.title, testType, round: '', date: fmtDate(o.date), course: o.course, n, allEssay: ae,
+    answers: Array(n).fill(''), ansPts: Array(n).fill(ae ? 0 : 5), essPts, probs: [], area: paperFile.name.replace(/\.pdf$/i, '').slice(0, 30), uploaded: { name: paperFile.name, pages: imgs.length } });
+  if (ae){ for (let i = 0; i < n; i++){ await setImg(probImgKey(id, i), imgs[i]); ex.probs[i] = { img: true, pageImg: true, src: `올린 시험지 ${i+1}쪽` }; } }
+  else { ex.paperPages = imgs.length; for (let k = 0; k < imgs.length; k++) await setImg(`paper:${id}:${k}`, imgs[k]); }
+  S.exams.push(ex); S.current = id; save();
+  if (aiReady()){
+    try {
+      if (ae){
+        for (let i = 0; i < n; i++){ BUSY = `AI가 ${i+1}/${n}번 문제를 읽고 채점 기준을 만드는 중…`; render();
+          const content = [{ type: 'text', text: `${i+1}번 문제 쪽:` }, imgPart(imgs[i])];
+          sol.forEach((d, k) => content.push({ type: 'text', text: `[해설 ${k+1}쪽]` }, imgPart(d)));
+          content.push({ type: 'text', text: `위 그림은 학원에서 만든 서술형 시험지의 ${i+1}번 문제 쪽입니다.${sol.length ? ' 함께 보낸 해설 쪽에서 이 문제의 풀이·채점기준을 찾아 그대로 따르세요.' : ''}
+- statement: 문제 문장을 그대로 옮겨 적기(수식 LaTeX). - type: "증명"/"구하기"/"작도". - answer: 구하는 값(증명·작도는 "").
+- solution: 단계별 모범 풀이. - rubric: 단계별 채점 기준(점수 합 ${essPts[i]}점${sol.length ? ', 해설에 채점기준이 있으면 그 단계와 비율을 따름' : ''}).
+출력: {"statement":"...","type":"증명","answer":"","solution":"...","rubric":[{"desc":"...","points":5}]}` });
+          const j = parseJSON(await callAI(content, { max: 8000, system: SYS })), p = ex.probs[i];
+          p.transcribed = String(j.statement || ''); p.type = ['증명', '구하기', '작도'].includes(j.type) ? j.type : ''; p.solution = String(j.solution || '');
+          p.rubric = (j.rubric || []).map(r => ({ desc: String(r.desc || ''), points: Number(r.points) || 0 })); ex.answers[i] = String(j.answer || '').slice(0, 80); save(); }
+      } else if (sol.length){
+        BUSY = 'AI가 해설에서 정답을 읽는 중…'; render();
+        const content = sol.flatMap((d, k) => [{ type: 'text', text: `[해설 ${k+1}쪽]` }, imgPart(d)]).concat([{ type: 'text', text: `위는 ${n}문항 시험의 해설입니다. 문항마다 정답(0~999 정수)을 읽어 주세요. 서술형으로 보이는 문항은 essay: true.
+출력: {"answers":[{"no":1,"answer":123,"essay":false}]}` }]);
+        const j = parseJSON(await callAI(content, { max: 4000, system: SYS }));
+        (j.answers || []).forEach(a => { const i = (Number(a.no) || 0) - 1; if (i >= 0 && i < n && /^\d{1,3}$/.test(String(a.answer))) ex.answers[i] = String(+a.answer); });
+        save();
+      }
+    } catch(e){ toast('시험지는 올렸지만 AI로 읽는 중 오류가 났습니다: ' + (e.message || e)); }
+  }
+  BUSY = ''; return ex;
+}
 function viewBooks(){
   const rows = S.books.map(b => { const ip = indexedPages(b), us = bookUnits(b), np = b.index ? sum(Object.values(b.index.pages).map(p => p.problems.length)) : 0;
     return `<tr><td class="l"><input data-bname="${esc(b.id)}" value="${esc(b.name)}" style="width:260px"></td><td>${b.pages}쪽</td>
@@ -1415,43 +1489,48 @@ function viewBooks(){
 }
 const mixOf = o => o.mix || { same: 0, nums: 0, form: 0, newp: 0, [o.mode || 'nums']: 100 };
 function viewAuto(){
-  const o = S.settings.autoLast || {}, b = S.books.find(x => x.id === o.bookId) || S.books[0];
-  if (!S.books.length) return `<div class="card"><h2>자동 출제</h2><p>먼저 「교재」 탭에서 교재 PDF를 올려 주세요.</p></div>`;
+  const o = S.settings.autoLast || {}, mode = S.settings.autoMode || 'ai';
+  const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10), ae = o.kind === '1';
+  const seg = (name, val, opts) => `<div class="seg">${opts.map(([v, l]) => `<label><input type="radio" name="${name}" value="${v}"${val === v ? ' checked' : ''}><span>${l}</span></label>`).join('')}</div>`;
+  const common = `<label>반 <select id="aCourse">${classesList().map(c => `<option${(o.course || classesList()[0]) === c ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+    <label>유형 <select id="aType">${TEST_TYPES.map(t => `<option${(o.testType || '단원테스트') === t ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+    <label>날짜 <input type="date" id="aDate" value="${esc(o.date || today)}"></label>`;
+  const head = `<div class="row" style="justify-content:space-between;margin-bottom:14px">${seg('aMode', mode, [['ai', 'AI로 만들기'], ['up', '만든 시험지 올리기']])}
+    ${seg('aKind', ae ? '1' : '0', [['0', '정답형 + 서술형'], ['1', '전부 서술형']])}</div>`;
+  if (mode === 'up') return `<div class="card">${head}
+    <div class="row">${common}</div>
+    <div class="row" style="margin-top:12px"><label class="filebox">시험지 PDF <input type="file" id="uPaper" accept="application/pdf"></label>
+      <label class="filebox">해설 PDF <span class="mute">(있으면)</span> <input type="file" id="uSol" accept="application/pdf"></label></div>
+    <div class="row" style="margin-top:12px">${ae ? `<label>총점 <input id="aTotal" style="width:64px" value="${esc(o.total || 100)}" inputmode="numeric"></label>`
+      : `<label>문항 수 <select id="uN"><option${(o.n || 10) === 10 ? ' selected' : ''}>10</option><option${o.n === 20 ? ' selected' : ''}>20</option></select></label>`}
+      <label>시험 이름 <input id="aTitle" placeholder="비우면 「반 유형」" style="width:180px"></label></div>
+    <div class="row" style="margin-top:16px"><button class="btn big" id="uRun"${BUSY ? ' disabled' : ''}>올리기</button>
+      <span class="mute">${ae ? '한 쪽 = 한 문제로 봅니다. 인쇄하면 쪽마다 이름·학생 번호·표식이 붙어 스캔 채점이 됩니다.' : '시험지는 그대로 인쇄하고, 정답은 해설 PDF에서 AI가 읽거나 「정답표」에 넣습니다.'}</span></div>${busyLine()}</div>`;
+  if (!S.books.length) return `<div class="card">${head}<p>AI로 만들려면 먼저 「교재」 탭에서 교재 PDF를 올려 주세요.</p></div>`;
+  const b = S.books.find(x => x.id === o.bookId) || S.books[0];
   const units = b ? bookUnits(b) : [], selU = (o.bookId === (b && b.id) ? o.units : null) || [];
-  const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
-  const ae = o.kind === '1';
-  return `<div class="card"><h2>자동 출제 — 고르기만 하면 AI가 시험지를 만듭니다</h2>
-  <div class="row" style="margin-bottom:8px"><b style="font-size:13px">출제 형식</b>
-    <label><input type="radio" name="aKind" value="0"${ae ? '' : ' checked'}> 정답형 + 서술형 (OMR 답안지)</label>
-    <label><input type="radio" name="aKind" value="1"${ae ? ' checked' : ''}> 전부 서술형 (시험지에 풀이 · 답안지 없이 시험지 스캔으로 채점)</label></div>
-  <div class="row"><label>교재 <select id="aBook">${S.books.map(x => `<option value="${esc(x.id)}"${b && x.id === b.id ? ' selected' : ''}>${esc(x.name)} (${x.pages}쪽${indexedPages(x) ? '' : ', 분석 전'})</option>`).join('')}</select></label>
-    <label>시험 날짜 <input type="date" id="aDate" value="${esc(o.date || today)}"></label>
-    <label>반 <select id="aCourse">${classesList().map(c => `<option${(o.course || classesList()[0]) === c ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
-    <label>시험 유형 <select id="aType">${TEST_TYPES.map(t => `<option${(o.testType || '단원테스트') === t ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
-    <label>시험 이름 <input id="aTitle" placeholder="비우면 「반 시험유형」" style="width:200px" value=""></label></div>
-  <div style="margin-top:10px"><b style="font-size:13px">범위</b> <span class="mute" style="font-size:12px">단원 · 쪽 · 문항 번호 중 아무거나 넣으면 됩니다(함께 넣으면 그 안에서 찾음)</span>
-    ${units.length ? `<div class="row" style="margin-top:4px;gap:6px 14px">${units.map(u => `<label style="font-size:13px"><input type="checkbox" class="aUnit" value="${esc(u.name)}"${selU.includes(u.name) ? ' checked' : ''}> ${esc(u.name)} <span class="mute">${u.from}~${u.to}쪽·${u.n}</span></label>`).join('')}</div>` : ''}
-    <div class="row" style="margin-top:6px"><label>쪽 <input id="aFrom" style="width:64px" inputmode="numeric" value="${esc(o.from || '')}"> ~ <input id="aTo" style="width:64px" inputmode="numeric" value="${esc(o.to || '')}"></label>
-    <label>문항 번호 <input id="aNos" style="width:180px" value="${esc(o.nos || '')}" placeholder="예: 12, 15-18, 23"></label>
-    <label><input type="checkbox" id="aSkip"${o.skipUsed === false ? '' : ' checked'}> 이 교재에서 이미 낸 문제는 빼기${b && usedCount(b) ? ` (${usedCount(b)}문제)` : ''}</label> <button class="btn gray sm" type="button" data-used="${b ? esc(b.id) : ''}">낸 문제 적기</button></div></div>
-  ${ae ? `<div class="row" style="margin-top:10px"><label>문항 수 <select id="aN">${Array.from({ length: 20 }, (_, k) => k + 1).map(k => `<option${(o.nAE || 5) === k ? ' selected' : ''}>${k}</option>`).join('')}</select></label>
-    <label>문항별 배점 <input id="aEP" style="width:130px" value="${esc(o.epAE || '')}" placeholder="비우면 똑같이"></label>
-    <label>총점 <input id="aTotal" style="width:64px" value="${esc(o.total || 100)}" inputmode="numeric"></label>
-    <label><input type="checkbox" id="aExact"${o.nExact ? ' checked' : ''}> 문항 번호를 넣으면 그 개수만큼 출제</label></div>
-  <p class="mute" style="margin:4px 0 0;font-size:12px">모든 문항이 서술형이고 정답 점수는 없습니다. 배점을 비우면 총점을 문항 수로 똑같이 나눕니다(예: 100점 · 5문항 → 20점씩). 시험지는 한 쪽에 한 문제, 학생은 문제 아래에 풀이를 쓰고 그 시험지를 스캔해 「채점」에 올리면 됩니다.</p>`
-  : `<div class="row" style="margin-top:10px"><label>문항 수 <select id="aN"><option${(o.n || 10) === 10 ? ' selected' : ''}>10</option><option${o.n === 20 ? ' selected' : ''}>20</option></select></label>
-    <label>정답 배점 <input id="aAP" style="width:110px" value="${esc(o.ap || '5')}" placeholder="5 또는 4,4,5,…"></label>
-    <label>서술형 번호 <input id="aEQ" style="width:100px" value="${esc(o.eq || '')}" placeholder="예: 8,9,10"></label>
-    <label>서술 배점 <input id="aEP" style="width:110px" value="${esc(o.ep || '')}" placeholder="비우면 자동"></label>
-    <label>총점 <input id="aTotal" style="width:64px" value="${esc(o.total || 100)}" inputmode="numeric"></label></div>
-  <p class="mute" style="margin:4px 0 0;font-size:12px">서술 배점을 비우면 「총점 − 정답 배점 합」을 서술형 문항의 난이도에 맞춰 5점 단위로 나눕니다(예: 정답 5점×10 + 서술 3문항 → 15·15·20). 문항 번호만 넣고 개수가 문항 수보다 적으면 찾은 개수만큼 냅니다.</p>`}
-  <div style="margin-top:10px"><b style="font-size:13px">문항 유사도</b>
-    <span class="mute" style="font-size:12px">방식마다 비중(%)을 넣으세요. 합이 100이 아니어도 비율로 나눕니다.</span>
-    <div class="row" style="margin-top:4px">${Object.entries(SIM).map(([k, v]) => `<label>${v.label} <input class="aMix" data-k="${k}" style="width:52px" inputmode="numeric" value="${esc(mixOf(o)[k] || 0)}">%</label>`).join('')}
-      <span class="mute" id="aMixOut"></span></div></div>
-  <div class="row" style="margin-top:8px"><label style="flex:1;min-width:260px">추가 요청(선택) <input id="aNote" style="width:100%" value="${esc(o.note || '')}" placeholder="${ae ? '예: 구하는 문제 1~2개, 나머지는 증명' : '예: 8~10번은 증명 서술, 그림은 크게'}"></label></div>
-  <div class="row" style="margin-top:12px"><button class="btn" id="aRun"${BUSY || !aiReady() ? ' disabled' : ''}>AI로 시험지 만들기</button>
-    ${!aiReady() ? '<span class="mute">「설정」에 API 키를 넣어야 합니다.</span>' : `<span class="mute">보통 1~3분. 끝나면 「시험지 만들기」에서 확인·수정하고 ${ae ? '시험지(스캔 채점용)·해설지를' : '시험지·해설지·답안지를'} 인쇄합니다.</span>`}</div>${busyLine()}</div>`;
+  const mix = mixOf(o), uc = b ? usedCount(b) : 0;
+  const sumTxt = [Object.keys(SIM).filter(k => +mix[k] > 0).map(k => `${SIM[k].label} ${mix[k]}%`).join(' · '), o.skipUsed !== false && uc ? `이미 낸 ${uc}문제 빼기` : ''].filter(Boolean).join(' · ');
+  return `<div class="card">${head}
+  <div class="row"><label>교재 <select id="aBook">${S.books.map(x => `<option value="${esc(x.id)}"${b && x.id === b.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>${common}</div>
+  <div class="row" style="margin-top:12px"><label>문항 번호 <input id="aNos" style="width:150px" value="${esc(o.nos || '')}" placeholder="예: 1-79"></label>
+    <label>또는 쪽 <input id="aFrom" style="width:56px" inputmode="numeric" value="${esc(o.from || '')}"> ~ <input id="aTo" style="width:56px" inputmode="numeric" value="${esc(o.to || '')}"></label>
+    <label>문항 수 <select id="aN">${(ae ? Array.from({ length: 20 }, (_, k) => k + 1) : [10, 20]).map(k => `<option${(ae ? (o.nAE || 5) : (o.n || 10)) === k ? ' selected' : ''}>${k}</option>`).join('')}</select></label>
+    ${ae ? '' : `<label>서술형 번호 <input id="aEQ" style="width:90px" value="${esc(o.eq || '')}" placeholder="8,9,10"></label>`}
+    <label>총점 <input id="aTotal" style="width:56px" value="${esc(o.total || 100)}" inputmode="numeric"></label></div>
+  ${units.length ? `<div class="row" style="margin-top:8px;gap:4px 12px"><span class="mute" style="font-size:12px">단원</span>${units.map(u => `<label style="font-size:13px"><input type="checkbox" class="aUnit" value="${esc(u.name)}"${selU.includes(u.name) ? ' checked' : ''}> ${esc(u.name)}</label>`).join('')}</div>` : ''}
+  <details id="aMore" style="margin-top:12px"${S.settings.autoMoreOpen ? ' open' : ''}><summary class="mute" style="cursor:pointer">세부 설정 <span style="font-size:12px">${esc(sumTxt)}</span></summary>
+    <div class="more">
+      <div class="row"><span class="lab">문항 유사도</span>${Object.entries(SIM).map(([k, v]) => `<label>${v.label} <input class="aMix" data-k="${k}" style="width:48px" inputmode="numeric" value="${esc(mix[k] || 0)}">%</label>`).join('')}<span class="mute" id="aMixOut"></span></div>
+      <div class="row"><span class="lab">이미 낸 문제</span><label><input type="checkbox" id="aSkip"${o.skipUsed === false ? '' : ' checked'}> 빼기${uc ? ` (${uc}문제)` : ''}</label><button class="btn gray sm" type="button" data-used="${b ? esc(b.id) : ''}">낸 문제 적기</button>
+        ${ae ? `<label><input type="checkbox" id="aExact"${o.nExact ? ' checked' : ''}> 문항 번호 개수만큼 출제</label>` : ''}</div>
+      <div class="row"><span class="lab">배점</span>${ae ? `<label>문항별 <input id="aEP" style="width:120px" value="${esc(o.epAE || '')}" placeholder="비우면 똑같이"></label>`
+        : `<label>정답 <input id="aAP" style="width:90px" value="${esc(o.ap || '5')}" placeholder="5"></label><label>서술 <input id="aEP" style="width:90px" value="${esc(o.ep || '')}" placeholder="비우면 자동"></label>`}</div>
+      <div class="row"><span class="lab">시험 이름</span><input id="aTitle" placeholder="비우면 「반 유형」" style="width:200px"></div>
+      <div class="row"><span class="lab">추가 요청</span><input id="aNote" style="flex:1;min-width:220px" value="${esc(o.note || '')}" placeholder="${ae ? '예: 구하는 문제 1~2개, 나머지는 증명' : '예: 그림은 크게'}"></div>
+    </div></details>
+  <div class="row" style="margin-top:16px"><button class="btn big" id="aRun"${BUSY || !aiReady() ? ' disabled' : ''}>AI로 시험지 만들기</button>
+    ${!aiReady() ? '<span class="mute">「설정」에 API 키를 넣어 주세요.</span>' : '<span class="mute">1~3분 걸립니다.</span>'}</div>${busyLine()}</div>`;
 }
 function bindAuto(){
   const $ = id => document.getElementById(id);
@@ -1485,6 +1564,16 @@ function bindAuto(){
         expandNos(parseNos(body), []).forEach(n => { map[n] = w; }); });
       b.usedNos = map; b.used = Object.fromEntries(Object.entries(b.used || {}).filter(([k]) => map[normNo(k.split(':').slice(1).join(':'))] !== undefined));
       save(); closeModal(); render(); toastSoft(`이미 낸 문제 ${Object.keys(map).length}개를 저장했습니다`); }; });
+  document.querySelectorAll('[name=aMode]').forEach(r => r.onchange = () => { S.settings.autoMode = r.value; save(); render(); });
+  if ($('uRun')){
+    const kindNow = () => (document.querySelector('[name=aKind]:checked') || {}).value || '0';
+    document.querySelectorAll('[name=aKind]').forEach(r => r.onchange = () => { S.settings.autoLast = { ...(S.settings.autoLast || {}), kind: kindNow() }; save(); render(); });
+    $('uRun').onclick = () => { const f = $('uPaper').files[0], sf = $('uSol').files[0]; if (!f) return toast('시험지 PDF를 골라 주세요');
+      const o = { ...(S.settings.autoLast || {}), kind: kindNow(), course: $('aCourse').value, testType: $('aType').value, date: $('aDate').value,
+        total: $('aTotal') ? +$('aTotal').value || 100 : 100, n: $('uN') ? +$('uN').value : undefined, title: $('aTitle').value.trim() };
+      S.settings.autoLast = { ...o, title: '' }; save();
+      runBusy('시험지 올리는 중…', async () => { const ex = await uploadExam(o, f, sf); TAB = 'make'; setTimeout(() => toastSoft(`올렸습니다 · ${ex.n}문항`), 50); }); };
+  }
   if ($('aRun')){
     const collect = () => { const nums = v => v.split(/[,\s]+/).filter(Boolean).map(Number).filter(x => isFinite(x));
       const prev = S.settings.autoLast || {}, kind = (document.querySelector('[name=aKind]:checked') || {}).value || '0', ae = kind === '1', v = id => $(id) ? $(id).value.trim() : '';
@@ -1499,6 +1588,7 @@ function bindAuto(){
       return ae ? { ...o, n: o.nAE, ansPts: [], essQ: [], essP: nums(o.epAE) } : { ...o, nExact: false, ansPts: nums(o.ap), essQ: nums(o.eq), essP: nums(o.ep) }; };
     $('aBook').onchange = () => { collect(); S.settings.autoLast.units = []; save(); render(); };
     document.querySelectorAll('[name=aKind]').forEach(r => r.onchange = () => { const t = $('aTitle').value; collect(); render(); if ($('aTitle')) $('aTitle').value = t; });
+    $('aMore').ontoggle = e => { S.settings.autoMoreOpen = e.target.open; save(); };
     const mixOut = () => { const ae = (document.querySelector('[name=aKind]:checked') || {}).value === '1', n = +$('aN').value || (ae ? 5 : 10), m = {};
       document.querySelectorAll('.aMix').forEach(x => m[x.dataset.k] = +x.value || 0); const c = mixCounts(m, n);
       $('aMixOut').textContent = sum(Object.values(m)) ? '→ ' + Object.keys(SIM).filter(k => c[k]).map(k => `${SIM[k].label} ${c[k]}문항`).join(' · ') : '비중을 하나 이상 넣어 주세요'; };
@@ -1528,6 +1618,7 @@ function render(){
   document.getElementById('examInfo').textContent = (ex.testType ? ex.testType + ' · ' : '') + (AE(ex) ? `${ex.course} · ${ex.date} · 전부 서술형 ${ex.n}문항 · ${totalOf(ex)}점 · 채점 ${Object.keys(res()).length}명`
     : `${ex.course} · ${ex.date} · ${ex.n}문항${ne ? `(서술 ${ne})` : ''} · 정답 ${sum(ex.ansPts)} + 서술 ${sum(ex.essPts)} = ${totalOf(ex)}점 · 채점 ${Object.keys(res()).length}명`);
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.t === TAB));
+  document.getElementById('navMoreBtn').classList.toggle('on', ['print', 'exam', 'roster', 'set'].includes(TAB));
   const M = document.getElementById('main'), y = window.scrollY;
   M.innerHTML = ({ grade: viewGrade, result: viewResult, make: viewMake, print: viewPrint, exam: viewExam, roster: viewRoster, set: viewSet, auto: viewAuto, books: viewBooks })[TAB]();
   bind(); bindAuto(); if (TAB === 'make') paintProbs();
@@ -1932,6 +2023,7 @@ async function deleteExam(ex){
       if (b.usedNos){ const k = Object.keys(b.usedNos).find(n => sameNo(n, u.no)); if (k && String(b.usedNos[k]).includes(ex.name)) delete b.usedNos[k]; } }
   }
   for (let i = 0; i < ex.n; i++){ DB.del(probImgKey(ex.id, i)); delete IMG[probImgKey(ex.id, i)]; }
+  for (let k = 0; k < (ex.paperPages || 0); k++){ DB.del(`paper:${ex.id}:${k}`); delete IMG[`paper:${ex.id}:${k}`]; }
   for (const no of Object.keys(S.results[ex.id] || {})) for (let i = 0; i < ex.n; i++){ const k = imgKey(ex.id, no, i); if ((S.results[ex.id][no].essImg || {})[i]){ DB.del(k); delete IMG[k]; } }
   S.exams = S.exams.filter(e => e.id !== ex.id); delete S.results[ex.id]; S.current = S.exams[0].id; save(); render(); toastSoft('시험을 지웠습니다');
 }
@@ -1984,7 +2076,10 @@ function bindProbs(){
       else toast(`${i+1}번: 답이 0~999 정수가 아닙니다 (${j.answer_note || j.answer}). 묻는 값을 바꾸거나 정답을 직접 넣어 주세요.`);
       save(); }); });
 }
-document.getElementById('nav').onclick = e => { const t = e.target.closest('button'); if (t){ collectMake(); saveGenOpt(); TAB = t.dataset.t; render(); } };
+document.getElementById('nav').onclick = e => { const t = e.target.closest('button'); if (!t) return;
+  if (t.id === 'navMoreBtn'){ const m = document.getElementById('navMore'); m.hidden = !m.hidden; return; }
+  document.getElementById('navMore').hidden = true; collectMake(); saveGenOpt(); TAB = t.dataset.t; render(); };
+document.addEventListener('click', e => { if (!e.target.closest('.morewrap')){ const m = document.getElementById('navMore'); if (m) m.hidden = true; } });
 document.getElementById('examPick').onchange = e => { collectMake(); S.current = e.target.value; LOG = []; save(); render(); };
 window.__kmo = { get S(){ return S; }, mixCounts, mixModes, printList, studentsFor, withStu, paperScanHTML, gradedHTML, setAllEssay, parseNos, matchNos, locateNos, AE, splitEssay, autoMake, pickProblems, indexBook, addBooks, handleFiles, readCanvas, render, gradeStudent, answerSheetsHTML, paperHTML, essayPage, omrPage, sheetHead, ESSAY_BOX, CODE, setImg, getImg, probImgKey };
 function showFatal(e){ const m = document.getElementById('main'); if (m) m.innerHTML = `<div class="card"><h2>화면을 열지 못했습니다</h2><p>${esc(e && (e.message || e))}</p><p class="mute">맥북의 크롬이나 사파리에서 파일을 열어 주세요. 계속 이러면 이 문구를 알려 주세요.</p></div>`; }
