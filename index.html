@@ -41,6 +41,7 @@ h2{font-size:16px;margin:0 0 10px} h3{font-size:14px;margin:0 0 6px}
 .btn.red{background:var(--bad-soft);color:var(--bad)}
 .btn.sm{padding:4px 10px;font-size:13px}
 .btn.big{padding:11px 22px;font-size:15px}
+.elist td{vertical-align:middle}.elist tr.cur td{background:var(--navy-soft)}.elist .acts{white-space:nowrap;text-align:right}.elist .acts .btn{margin-left:4px}
 .seg{display:inline-flex;background:var(--navy-soft);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
 .seg label{cursor:pointer}.seg input{position:absolute;opacity:0;pointer-events:none}
 .seg span{display:block;padding:6px 14px;border-radius:8px;font-weight:600;color:var(--mute);font-size:13px}
@@ -104,8 +105,8 @@ td.es .eb{border:0;background:transparent;color:var(--navy);cursor:pointer;font-
 <body>
 <header><div class="wrap">
   <div class="top"><div class="brand">KMO/영재고 테스트기<small id="brandSub">이 컴퓨터에서 동작 · AI는 설정한 키로만 호출</small></div><span id="cloudBadge"></span>
-    <nav id="nav"><button data-t="auto" class="on">출제</button><button data-t="make">시험지</button><button data-t="grade">채점</button><button data-t="result">결과</button><button data-t="books">교재</button>
-      <span class="morewrap"><button id="navMoreBtn" type="button">더보기 ▾</button><span id="navMore" hidden><button data-t="print">답안지 인쇄</button><button data-t="exam">정답표·배점</button><button data-t="roster">명단</button><button data-t="set">설정</button></span></span></nav></div>
+    <nav id="nav"><button data-t="auto" class="on">출제</button><button data-t="list">시험 목록</button><button data-t="grade">채점</button><button data-t="result">결과</button><button data-t="books">교재</button>
+      <span class="morewrap"><button id="navMoreBtn" type="button">더보기 ▾</button><span id="navMore" hidden><button data-t="make">문항 고치기</button><button data-t="print">답안지 인쇄</button><button data-t="exam">정답표·배점</button><button data-t="roster">명단</button><button data-t="set">설정</button></span></span></nav></div>
   <div class="examsel">시험 <select id="examPick"></select> <span id="examInfo"></span></div>
 </div></header>
 <main class="wrap" id="main"><div class="card" id="boot">불러오는 중…<p class="mute" style="margin:8px 0 0;font-size:13px">이 글만 계속 보이면 지금 화면(폰의 파일 미리보기 등)이 앱의 스크립트를 실행하지 않는 것입니다. 맥북의 크롬이나 사파리에서 파일을 열어 주세요.</p></div><noscript><div class="card"><h2>이 화면에서는 앱이 실행되지 않습니다</h2><p>스크립트가 꺼진 미리보기입니다. 맥북의 크롬이나 사파리에서 파일을 열어 주세요.</p></div></noscript></main>
@@ -1488,6 +1489,28 @@ function viewBooks(){
   <p class="mute" style="font-size:12px">해설 PDF를 붙이면 자동 출제 때 고른 문제의 해설 쪽을 찾아(필요한 쪽만 그때 분석) AI에 함께 보냅니다. 「동일 문항」은 해설의 답과 풀이로 정답·채점 기준을 만들고, 바꾼 문항도 해설의 풀이 방법을 참고합니다. 해설이 교재 PDF 뒤쪽에 붙어 있으면 따로 붙이지 않아도 됩니다.</p>` : ''}`;
 }
 const mixOf = o => o.mix || { same: 0, nums: 0, form: 0, newp: 0, [o.mode || 'nums']: 100 };
+function examHub(){     // 지금 고른 시험: 인쇄 단추를 한 곳에
+  const ex = exam(), bad = ex.probs.filter((p, i) => verifyBad(ex, i)).length, empty = ex.probs.filter((p, i) => !p.statement && !p.img).length;
+  const st = empty ? `<span class="pill p-warn">빈 문항 ${empty}개</span>` : bad ? `<span class="pill p-bad">검산 확인 ${bad}문항</span>` : '<span class="pill p-ok">준비됨</span>';
+  return `<div class="card hub"><div class="row" style="justify-content:space-between"><div><div class="mute" style="font-size:12px">지금 고른 시험 (위 「시험」에서 바꿈)</div>
+      <div style="font-size:17px;font-weight:800">${esc(ex.name)} <span class="mute" style="font-size:13px;font-weight:500">${esc(ex.date)} · ${AE(ex) ? `서술형 ${ex.n}문항` : `${ex.n}문항`} · ${totalOf(ex)}점</span> ${st}</div></div>
+    <div class="row"><button class="btn" id="hPaper">시험지 인쇄</button><button class="btn gray" id="hSol">해설지 인쇄</button>${AE(ex) ? '' : '<button class="btn gray" id="hSheet">답안지 인쇄</button>'}<button class="btn gray" id="hEdit">문항 보기·고치기</button></div></div>
+    <div class="row" style="margin-top:8px">${printOptHTML(ex)}</div></div>`;
+}
+const dateKey = d => { const m = /(\d{2,4})\D+(\d{1,2})\D+(\d{1,2})/.exec(d || ''); return m ? (m[1].length === 2 ? '20' + m[1] : m[1]) + m[2].padStart(2, '0') + m[3].padStart(2, '0') : ''; };
+function viewList(){
+  const f = S.settings.listCls || '', cls = [...new Set(S.exams.map(e => e.course).filter(Boolean))];
+  const list = S.exams.filter(e => !f || e.course === f).slice().sort((a, b) => (dateKey(b.date) || '0').localeCompare(dateKey(a.date) || '0') || (b.id > a.id ? 1 : -1));
+  const rows = list.map(ex => { const nres = Object.keys(S.results[ex.id] || {}).length, bad = ex.probs.filter((p, i) => verifyBad(ex, i)).length, empty = ex.probs.filter(p => !p.statement && !p.img).length;
+    const st = empty && empty < ex.n && !ex.paperPages ? `<span class="pill p-warn">빈 문항 ${empty}</span>` : bad ? `<span class="pill p-bad">검산 확인 ${bad}</span>` : '';
+    return `<tr class="${ex.id === S.current ? 'cur' : ''}"><td class="l"><b>${esc(ex.name)}</b> ${st}<div class="mute" style="font-size:12px">${esc(ex.course)} · ${esc(ex.testType || '')} · ${AE(ex) ? `서술형 ${ex.n}문항` : `${ex.n}문항`} · ${totalOf(ex)}점${ex.uploaded ? ' · 올린 시험지' : ''}</div></td>
+      <td>${esc(ex.date)}</td><td>${nres ? `${nres}명` : '<span class="mute">-</span>'}</td>
+      <td class="acts"><button class="btn sm" data-lp="${esc(ex.id)}">시험지</button><button class="btn gray sm" data-ls="${esc(ex.id)}">해설지</button>${AE(ex) ? '' : `<button class="btn gray sm" data-la="${esc(ex.id)}">답안지</button>`}
+        <button class="btn gray sm" data-lg="${esc(ex.id)}">채점</button><button class="btn gray sm" data-le="${esc(ex.id)}">고치기</button>${PRESETS.some(p => p.id === ex.id) ? '' : `<button class="btn red sm" data-ld="${esc(ex.id)}">지우기</button>`}</td></tr>`; }).join('');
+  return `<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">시험 목록 <span class="mute" style="font-size:13px;font-weight:500">${list.length}개</span></h2>
+    <div class="row"><select id="lCls"><option value="">모든 반</option>${cls.map(c => `<option${c === f ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select>${printOptHTML(exam())}</div></div></div>
+  <div class="card scroll"><table class="elist"><tr><th class="l">시험</th><th>날짜</th><th>채점</th><th></th></tr>${rows}</table></div>`;
+}
 function viewAuto(){
   const o = S.settings.autoLast || {}, mode = S.settings.autoMode || 'ai';
   const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10), ae = o.kind === '1';
@@ -1572,7 +1595,7 @@ function bindAuto(){
       const o = { ...(S.settings.autoLast || {}), kind: kindNow(), course: $('aCourse').value, testType: $('aType').value, date: $('aDate').value,
         total: $('aTotal') ? +$('aTotal').value || 100 : 100, n: $('uN') ? +$('uN').value : undefined, title: $('aTitle').value.trim() };
       S.settings.autoLast = { ...o, title: '' }; save();
-      runBusy('시험지 올리는 중…', async () => { const ex = await uploadExam(o, f, sf); TAB = 'make'; setTimeout(() => toastSoft(`올렸습니다 · ${ex.n}문항`), 50); }); };
+      runBusy('시험지 올리는 중…', async () => { const ex = await uploadExam(o, f, sf); TAB = 'list'; setTimeout(() => toastSoft(`올렸습니다 · ${ex.n}문항`), 50); }); };
   }
   if ($('aRun')){
     const collect = () => { const nums = v => v.split(/[,\s]+/).filter(Boolean).map(Number).filter(x => isFinite(x));
@@ -1598,7 +1621,7 @@ function bindAuto(){
     $('aRun').onclick = () => { const o = collect();
       if (!sum(Object.values(o.mix))) return toast('문항 유사도 비중을 하나 이상 넣어 주세요');
       if (o.kind !== '1' && o.essQ.length && o.essP.length && o.essQ.length !== o.essP.length && o.essP.length !== 1) return toast('서술형 번호와 서술 배점 개수를 맞추거나, 서술 배점을 비워 자동으로 정하게 해 주세요');
-      runBusy('자동 출제 준비 중…', async () => { const ex = await autoMake(o); TAB = 'make';
+      runBusy('자동 출제 준비 중…', async () => { const ex = await autoMake(o); TAB = 'list';
         const bad = ex.probs.filter((p, i) => verifyBad(ex, i)).length;
         const essTxt = AE(ex) ? ` · 배점 ${ex.essPts.join('·')}점` : essQs(ex).length ? ` · 서술 배점 ${essQs(ex).map(i => `${i+1}번 ${ex.essPts[i]}`).join(', ')}점` : '';
         const extra = [o.nFrom ? `문항 번호로 찾은 ${ex.n}문항만 냈습니다(문항 수 ${o.nFrom})` : '', o.missNos ? `못 찾은 번호: ${o.missNos.join(', ')}` : ''].filter(Boolean).join(' · ');
@@ -1618,9 +1641,9 @@ function render(){
   document.getElementById('examInfo').textContent = (ex.testType ? ex.testType + ' · ' : '') + (AE(ex) ? `${ex.course} · ${ex.date} · 전부 서술형 ${ex.n}문항 · ${totalOf(ex)}점 · 채점 ${Object.keys(res()).length}명`
     : `${ex.course} · ${ex.date} · ${ex.n}문항${ne ? `(서술 ${ne})` : ''} · 정답 ${sum(ex.ansPts)} + 서술 ${sum(ex.essPts)} = ${totalOf(ex)}점 · 채점 ${Object.keys(res()).length}명`);
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.t === TAB));
-  document.getElementById('navMoreBtn').classList.toggle('on', ['print', 'exam', 'roster', 'set'].includes(TAB));
+  document.getElementById('navMoreBtn').classList.toggle('on', ['make', 'print', 'exam', 'roster', 'set'].includes(TAB));
   const M = document.getElementById('main'), y = window.scrollY;
-  M.innerHTML = ({ grade: viewGrade, result: viewResult, make: viewMake, print: viewPrint, exam: viewExam, roster: viewRoster, set: viewSet, auto: viewAuto, books: viewBooks })[TAB]();
+  M.innerHTML = ({ grade: viewGrade, result: viewResult, make: viewMake, print: viewPrint, exam: viewExam, roster: viewRoster, set: viewSet, auto: viewAuto, list: viewList, books: viewBooks })[TAB]();
   bind(); bindAuto(); if (TAB === 'make') paintProbs();
   window.scrollTo(0, y);
 }
@@ -1669,7 +1692,7 @@ function viewResult(){
 }
 function viewMake(){
   const ex = exam(), o = ex.genOpt || {};
-  return `<div class="card"><h2>시험지 만들기 — ${esc(ex.name)}</h2>
+  return `<div class="card"><h2>문항 고치기 — ${esc(ex.name)}</h2>
   <div class="row"><label>시험 이름 <input id="mkName" value="${esc(ex.name)}" style="width:220px" placeholder="비우면 「반 시험유형」" title="반과 시험 유형으로 자동으로 정해집니다. 직접 고치면 그 이름을 씁니다."></label><label>회차 <input id="mkRound" value="${esc(ex.round)}" style="width:56px"></label>
     <label>날짜 <input id="mkDate" value="${esc(ex.date)}" style="width:100px"></label><label>반 <input id="mkCourse" value="${esc(ex.course)}" style="width:100px"></label>
     <label>시험 유형 ${typeSel(ex, 'mkType')}</label><label>출제 형식 ${kindSel(ex, 'mkKind')}</label>
@@ -1731,13 +1754,13 @@ function viewPrint(){
       <button class="btn" id="doPrintAE">시험지 인쇄하기 (스캔 채점용)</button><span class="mute">1부 = ${ex.n}쪽 (한 쪽 한 문제)</span></div>
     <p class="mute">쪽마다 네 귀퉁이 검은 네모(위치 맞춤), 오른쪽 위 학생 번호 칸, 왼쪽 아래 작은 네모(문항 표시)가 있습니다. 학생 번호는 쪽마다 칠하게 하고(못 읽으면 앞 쪽 학생으로 이어 봄), 작은 네모는 가리지 않게 해 주세요. 인쇄는 A4, 배율 100%(또는 기본값).</p>
     <div class="row" style="align-items:flex-start"><div class="preview"><iframe id="pvAE"></iframe></div></div></div>
-    <div class="card"><h2>해설지</h2><div class="row"><button class="btn gray" id="pSol2">해설지 인쇄</button><span class="mute">문제는 「시험지 만들기」에서 넣습니다.</span></div></div>`;
+    <div class="card"><h2>해설지</h2><div class="row"><button class="btn gray" id="pSol2">해설지 인쇄</button><span class="mute">문제는 「더보기 → 문항 고치기」에서 고칩니다.</span></div></div>`;
   return `<div class="card"><h2>답안지 인쇄 — ${esc(ex.name)}</h2>
   <div class="row">${printOptHTML(ex)}
   <button class="btn" id="doPrint">답안지 인쇄하기</button><span class="mute">1부 = OMR 1쪽${ne ? ` + 서술 풀이 ${ne}쪽` : ''}${(1 + ne) % 2 && ne ? ' + 양면 인쇄용 빈 쪽' : ''}</span></div>
   <p class="mute">인쇄 창에서 용지 A4, 배율 100%(또는 기본값), 여백 없음으로 고르세요. 배율이 조금 달라도 네 귀퉁이 표식으로 맞춰 읽습니다.${ne ? ' 서술 풀이 쪽 왼쪽 아래의 작은 검은 네모는 쪽 구분 표시이니 가리지 않게 해 주세요.' : ''}</p>
   <div class="row" style="align-items:flex-start"><div class="preview" id="pv"><iframe id="pvf"></iframe></div>${ne ? '<div class="preview" id="pv2"><iframe id="pvf2"></iframe></div>' : ''}</div></div>
-  <div class="card"><h2>시험지·해설지</h2><div class="row"><button class="btn gray" id="pPaper2">시험지 인쇄</button><button class="btn gray" id="pSol2">해설지 인쇄</button><span class="mute">문제는 「시험지 만들기」에서 넣습니다.</span></div></div>`;
+  <div class="card"><h2>시험지·해설지</h2><div class="row"><button class="btn gray" id="pPaper2">시험지 인쇄</button><button class="btn gray" id="pSol2">해설지 인쇄</button><span class="mute">문제는 「더보기 → 문항 고치기」에서 고칩니다.</span></div></div>`;
 }
 function viewExam(){
   const ex = exam();
@@ -1913,6 +1936,18 @@ function bind(){
     o[el.dataset.k] = el.type === 'checkbox' ? el.checked : (+el.value || 0); save(); render(); });
   if ($('gPdfAll')) $('gPdfAll').onclick = async () => { const nos = Object.keys(res()).sort(); printHTML(await gradedHTML(exam(), nos)); };
   document.querySelectorAll('[data-gpdf]').forEach(b => b.onclick = async () => printHTML(await gradedHTML(exam(), [b.dataset.gpdf])));
+  if ($('lCls')){ $('lCls').onchange = () => { S.settings.listCls = $('lCls').value; save(); render(); };
+    const pick = id => { S.current = id; save(); return exam(); };
+    document.querySelectorAll('[data-lp]').forEach(b => b.onclick = async () => { const ex = pick(b.dataset.lp); render(); printHTML(await paperHTML(ex, 'paper', printList(ex))); });
+    document.querySelectorAll('[data-ls]').forEach(b => b.onclick = async () => { const ex = pick(b.dataset.ls); render(); printHTML(await paperHTML(ex, 'sol')); });
+    document.querySelectorAll('[data-la]').forEach(b => b.onclick = () => { const ex = pick(b.dataset.la); render(); printHTML(answerSheetsHTML(ex, printList(ex))); });
+    document.querySelectorAll('[data-lg]').forEach(b => b.onclick = () => { pick(b.dataset.lg); LOG = []; TAB = 'grade'; render(); window.scrollTo(0, 0); });
+    document.querySelectorAll('[data-le]').forEach(b => b.onclick = () => { pick(b.dataset.le); TAB = 'make'; render(); window.scrollTo(0, 0); });
+    document.querySelectorAll('[data-ld]').forEach(b => b.onclick = () => { const ex = S.exams.find(e => e.id === b.dataset.ld); if (ex) deleteExam(ex); }); }
+  if ($('hPaper')){ $('hPaper').onclick = async () => printHTML(await paperHTML(exam(), 'paper', printList(exam())));
+    $('hSol').onclick = async () => printHTML(await paperHTML(exam(), 'sol'));
+    if ($('hSheet')) $('hSheet').onclick = () => printHTML(answerSheetsHTML(exam(), printList(exam())));
+    $('hEdit').onclick = () => { TAB = 'make'; render(); window.scrollTo(0, 0); }; }
   for (const id of ['pPaper', 'pPaper2']) if ($(id)) $(id).onclick = async () => { collectMake(); printHTML(await paperHTML(exam(), 'paper', printList(exam()))); };
   for (const id of ['pSol', 'pSol2']) if ($(id)) $(id).onclick = async () => { collectMake(); printHTML(await paperHTML(exam(), 'sol')); };
   // 시험지 만들기
