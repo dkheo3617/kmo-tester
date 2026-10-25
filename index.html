@@ -193,13 +193,13 @@ function cloudBadge(){
   el.innerHTML = `<span class="mute" style="font-size:12px">${CLOUD.err ? `<span style="color:var(--bad)">⚠ ${esc(CLOUD.err)}</span>` : CLOUD.pending ? `<span class="busy"></span> 올리는 중 ${CLOUD.pending}` : '☁ 모든 기기에 저장됨'} · ${esc(CLOUD.user.email || '')} <a href="#" id="logout" style="color:inherit">로그아웃</a></span>`;
   const lo = document.getElementById('logout'); if (lo) lo.onclick = e => { e.preventDefault(); firebase.auth().signOut().then(() => location.reload()); };
 }
-function stateForCloud(){ const c = JSON.parse(JSON.stringify(S)); if (c.settings){ delete c.settings.apiKey; } return c; }
+function stateForCloud(){ const c = JSON.parse(JSON.stringify(S)); if (c.settings && c.settings.syncKey === false) delete c.settings.apiKey; return c; }   // kmo/{본인} 칸은 본인만 읽음(규칙)
 function applyRemoteState(rs){
   const keepKey = S && S.settings ? S.settings.apiKey : '', keepModel = S && S.settings ? S.settings.model : '';
   S = rs; S.settings = S.settings || {}; S.books = S.books || []; S.roster = S.roster || []; S.results = S.results || {};
   for (const p of PRESETS) if (!S.exams.some(e => e.id === p.id)) S.exams.push(JSON.parse(JSON.stringify(p)));
   S.exams.forEach(fixExam); if (!S.exams.some(e => e.id === S.current)) S.current = S.exams[0].id;
-  if (keepKey) S.settings.apiKey = keepKey; if (keepModel && !S.settings.model) S.settings.model = keepModel;
+  if (keepKey && !S.settings.apiKey) S.settings.apiKey = keepKey; if (keepModel && !S.settings.model) S.settings.model = keepModel;
   for (const k of Object.keys(IMG)) delete IMG[k];
   DB.setLocal('state', S); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e){}
 }
@@ -1121,6 +1121,57 @@ async function indexBook(book, from = 1, to = book.pages){
     save();
   }
 }
+// ------------------------------------------------------------ 교재 해설 PDF (교재마다 하나 붙임 → 출제 때 그 문제 해설 쪽을 AI에 함께 보냄)
+async function addSolPdf(book, file){
+  const buf = await file.arrayBuffer(), id = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf.slice(0)), verbosity: 0 }).promise;
+  if (book.sol) { DB.del(bookKey(book.sol.id)); delete PDFCACHE[book.sol.id]; }
+  await DB.set(bookKey(id), buf); PDFCACHE[id] = pdf;
+  book.sol = { id, name: file.name.replace(/\.pdf$/i, ''), pages: pdf.numPages }; book.solIndex = { pages: {} }; save();
+}
+async function indexSol(book, from, to){
+  const si = book.solIndex = book.solIndex || { pages: {} }, todo = [];
+  for (let p = Math.max(1, from); p <= Math.min(book.sol.pages, to); p++) if (!si.pages[p]) todo.push(p);
+  for (let k = 0; k < todo.length; k += 4){
+    const ps = todo.slice(k, k + 4); BUSY = `해설 분석: ${book.sol.name} ${ps[0]}~${ps[ps.length-1]}쪽`; render();
+    const content = [];
+    for (const p of ps){ const c = await pageCanvas(book.sol.id, p, 1300); content.push({ type: 'text', text: `[${p}쪽]` }, imgPart(c.toDataURL('image/jpeg', 0.72))); }
+    content.push({ type: 'text', text: `다음은 수학 교재(${book.name})의 해설(정답·풀이) 쪽 그림입니다. 쪽마다 그 쪽에 풀이가 실린 문제 번호를 교재에 적힌 그대로 알려 주세요(풀이가 앞 쪽에서 이어지면 그 번호도 포함). 단원 이름이 보이면 unit 에.
+출력: {"pages":[{"page":3,"unit":"메넬라우스 정리","nos":["12","13","14"]}]}` });
+    const j = parseJSON(await callAI(content, { max: 4000, system: SYS }));
+    for (const pg of j.pages || []){ const p = Number(pg.page); if (ps.includes(p)) si.pages[p] = { unit: String(pg.unit || '').slice(0, 40), nos: (pg.nos || []).map(x => normNo(x)).slice(0, 60) }; }
+    for (const p of ps) if (!si.pages[p]) si.pages[p] = { unit: '', nos: [] };
+    save();
+  }
+}
+function solFind(book, pk){       // 이 문제의 해설 쪽(들)
+  const si = (book.solIndex || {}).pages || {}, hits = [];
+  for (const p of Object.keys(si).map(Number).sort((a, b) => a - b)) if ((si[p].nos || []).some(n => sameNo(n, pk.no))) hits.push(p);
+  if (hits.length > 1 && pk.unit){ const u = hits.filter(p => si[p].unit && (si[p].unit.includes(pk.unit) || pk.unit.includes(si[p].unit))); if (u.length) return u.slice(0, 2); }
+  return hits.slice(0, 2);
+}
+async function solPagesFor(book, picks){   // 고른 문제들의 해설 쪽을 찾음(분석 안 된 해설은 번호 위치를 어림해 그 근처만 분석)
+  if (!book.sol) return {};
+  const out = {};
+  for (const [i, pk] of picks.entries()){
+    if (!pk) continue;
+    for (let it = 0; it < 6 && !solFind(book, pk).length; it++){
+      const si = book.solIndex.pages, pairs = [];
+      Object.keys(si).map(Number).forEach(p => (si[p].nos || []).forEach(n => { if (/^\d+$/.test(n)) pairs.push([+n, p]); }));
+      pairs.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      const t = /^\d+$/.test(normNo(pk.no)) ? +normNo(pk.no) : NaN, ppp = pairs.length ? Math.max(0.5, pairs.length / new Set(pairs.map(x => x[1])).size) : 4;
+      let est = isFinite(t) ? Math.round(1 + (t - 1) / 4) : 1;
+      if (pairs.length && isFinite(t)){ const lo = pairs.filter(x => x[0] <= t).pop(), hi = pairs.find(x => x[0] >= t);
+        est = lo && hi ? lo[1] + (hi[1] - lo[1]) * (t - lo[0]) / Math.max(1, hi[0] - lo[0]) : lo ? lo[1] + (t - lo[0]) / ppp : hi[1] - (hi[0] - t) / ppp; }
+      est = Math.max(1, Math.min(book.sol.pages, Math.round(est)));
+      const un = []; for (let p = 1; p <= book.sol.pages; p++) if (!si[p]) un.push(p);
+      if (!un.length) break; un.sort((a, b) => Math.abs(a - est) - Math.abs(b - est) || a - b);
+      const a = Math.max(1, Math.min(un[0] - 1, book.sol.pages - 3)); await indexSol(book, a, a + 3);
+    }
+    const f = solFind(book, pk); if (f.length) out[i] = f;
+  }
+  return out;
+}
 const SIM = {
   same: { label: '동일 문항', text: '교재 문제를 그대로 씁니다. statement 는 문장·숫자를 그대로 옮겨 적고(수식 LaTeX), 그림이 있으면 figure 를 {"type":"crop","page":쪽,"bbox":[x0,y0,x1,y1]} 로 교재 그림 영역(쪽 그림 기준 0~1 비율, 그림만 넉넉히)을 줍니다. 답이 0~999 정수가 아니면 묻는 것만 최소한으로 바꿔(정수배를 묻는 등) 정수가 되게 하고 note 에 적습니다.' },
   nums: { label: '숫자만 변경', text: '문제 구조·문장·묻는 것은 그대로 두고 주어진 숫자만 바꿉니다. 바꾼 숫자로도 조건이 성립하고 답이 0~999 정수가 되게 합니다. 그림 속 숫자·길이가 바뀌면 figure 를 {"type":"svg","svg":"..."} 로 새로 그리고(viewBox="0 0 320 220", 흰 바탕, 검은 선 stroke-width 1.5, 정답이 드러나지 않게), 그림에 바뀌는 숫자가 없으면 crop 을 써도 됩니다.' },
@@ -1243,22 +1294,26 @@ async function genFromBook(book, ex, picks, modes, note, only){
     BUSY = `AI가 문제를 만드는 중… ${done}/${total}문항 (교재 ${g.join('·')}쪽)`; render();
     const content = [];
     for (const p of g){ const c = await pageCanvas(book.id, p, 1600); content.push({ type: 'text', text: `[교재 ${p}쪽]` }, imgPart(c.toDataURL('image/jpeg', 0.8))); }
+    const solMap = book.sol ? await solPagesFor(book, picks.map((pk, i) => g.includes(pk && pk.page) && (!only || only.includes(i)) ? pk : null)) : {};
+    const solPages = [...new Set(Object.values(solMap).flat())].sort((a, b) => a - b).slice(0, 3);
+    for (const sp of solPages){ const c = await pageCanvas(book.sol.id, sp, 1500); content.push({ type: 'text', text: `[해설 ${sp}쪽]` }, imgPart(c.toDataURL('image/jpeg', 0.78))); }
     const ae = AE(ex), idx = g.flatMap(p => byPage[p]);
     const slotLines = idx.map(i => { const pk = picks[i], ep = Number(ex.essPts[i]) || 0, how = `방식 「${SIM[modes[i]].label}」`;
       return ae ? `- slot ${i+1}: 교재 ${pk.page}쪽 ${pk.no}번 문제(${pk.topic || pk.unit}) → 시험 ${i+1}번, ${how}, 서술형 ${ep}점(rubric 단계별 점수 합 ${ep})`
         : `- slot ${i+1}: 교재 ${pk.page}쪽 ${pk.no}번 문제(${pk.topic || pk.unit}) → 시험 ${i+1}번, ${how}, 정답 배점 ${ex.ansPts[i]}점${ep ? `, 서술형 ${ep}점(풀이를 쓰게 하는 문제로, rubric 단계별 점수 합 ${ep})` : ''}`; }).join('\n');
     const simT = m => ae ? SIM[m].text.replace(/ 답이 0~999 정수가 아니면[^.]*\. ?/, ' ').replace('조건이 성립하고 답이 0~999 정수가 되게 합니다.', '조건이 성립하고 결론이 하나로 정해지게 합니다.') : SIM[m].text;
     const used = [...new Set(idx.map(i => modes[i]))];
+    const solNote = solPages.length ? `교재 해설 쪽 그림([해설 n쪽])도 함께 보냅니다(${Object.entries(solMap).filter(([i]) => idx.includes(+i)).map(([i, ps]) => `slot ${+i+1} → 해설 ${ps.join('·')}쪽`).join(', ')}). 「동일 문항」은 해설의 답을 answer 로, 해설 풀이를 바탕으로 solution·rubric 을 씁니다. 숫자나 형태를 바꾼 문항도 해설의 풀이 방법을 참고하되, 바뀐 조건으로 다시 계산합니다.\n` : '';
     content.push({ type: 'text', text: `위 교재 쪽의 문제를 바탕으로 시험 문항을 만들어 주세요. 문항마다 정해진 방식으로 만듭니다.
 ${used.map(m => `방식 「${SIM[m].label}」 — ${simT(m)}`).join('\n')}
-${ex.testType && TYPE_HINT[ex.testType] ? '시험 유형: ' + TYPE_HINT[ex.testType] + '\n' : ''}공통 규칙: ${ae ? '모든 문항이 서술형이고 학생은 시험지의 문제 아래에 풀이를 씁니다. 답은 정수가 아니어도 되고, 증명·작도 문항은 answer 를 "증명"/"작도"로 둡니다. 모든 문항에 rubric(단계별 채점 기준, 점수 합 = 그 문항 배점)을 줍니다. type 은 "증명"/"구하기"/"작도".' : '모든 문항의 최종 답은 0 이상 999 이하의 정수 하나.'} 문제 문장만 읽고 풀 수 있게 완결되게 쓰고 "다음 그림과 같이" 대신 조건을 문장으로도 적습니다. 각 문항을 ${ae ? '직접 풀어 조건에 모순이 없고 결론이 성립하는지' : '서로 다른 방법으로 두 번 풀어 답을'} 확인하고 check 에 한 줄로 적습니다. solution 은 학생용 단계별 풀이(사용한 정리 이름).${ae ? '' : ' 서술형이 아닌 문항의 rubric 은 [].'}
+${solNote}${ex.testType && TYPE_HINT[ex.testType] ? '시험 유형: ' + TYPE_HINT[ex.testType] + '\n' : ''}공통 규칙: ${ae ? '모든 문항이 서술형이고 학생은 시험지의 문제 아래에 풀이를 씁니다. 답은 정수가 아니어도 되고, 증명·작도 문항은 answer 를 "증명"/"작도"로 둡니다. 모든 문항에 rubric(단계별 채점 기준, 점수 합 = 그 문항 배점)을 줍니다. type 은 "증명"/"구하기"/"작도".' : '모든 문항의 최종 답은 0 이상 999 이하의 정수 하나.'} 문제 문장만 읽고 풀 수 있게 완결되게 쓰고 "다음 그림과 같이" 대신 조건을 문장으로도 적습니다. 각 문항을 ${ae ? '직접 풀어 조건에 모순이 없고 결론이 성립하는지' : '서로 다른 방법으로 두 번 풀어 답을'} 확인하고 check 에 한 줄로 적습니다. solution 은 학생용 단계별 풀이(사용한 정리 이름).${ae ? '' : ' 서술형이 아닌 문항의 rubric 은 [].'}
 ${note ? '추가 요청: ' + note + '\n' : ''}만들 문항:
 ${slotLines}
 출력(JSON 하나): {"items":[{"slot":1,${ae ? '"type":"증명",' : ''}"statement":"...","figure":null,"answer":${ae ? '"증명"' : '123'},"solution":"...","rubric":[{"desc":"...","points":5}],"check":"...","note":""}]}` });
     const j = parseJSON(await callAI(content, { max: 24000, system: SYS }));
     for (const it of j.items || []){
       const i = Number(it.slot) - 1; if (!(i >= 0 && i < ex.n) || !picks[i]) continue;
-      const pk = picks[i], p = ex.probs[i] = { mode: modes[i], src: `${book.name} ${pk.page}쪽 ${pk.no}번 · ${SIM[modes[i]].label}`, area: pk.unit || pk.topic || '', book: { id: book.id, page: pk.page, no: pk.no } };
+      const pk = picks[i], p = ex.probs[i] = { mode: modes[i], solRef: solMap[i] || null, src: `${book.name} ${pk.page}쪽 ${pk.no}번 · ${SIM[modes[i]].label}${solMap[i] ? ' · 해설 참고' : ''}`, area: pk.unit || pk.topic || '', book: { id: book.id, page: pk.page, no: pk.no } };
       p.statement = String(it.statement || ''); p.solution = String(it.solution || ''); p.check = String(it.check || '') + (it.note ? ` (변경: ${it.note})` : '');
       p.rubric = Number(ex.essPts[i]) > 0 ? (it.rubric || []).map(r => ({ desc: String(r.desc || ''), points: Number(r.points) || 0 })) : [];
       p.img = false; p.svg = ''; await DB.del(probImgKey(ex.id, i)); delete IMG[probImgKey(ex.id, i)];
@@ -1340,13 +1395,16 @@ function viewBooks(){
     return `<tr><td class="l"><input data-bname="${esc(b.id)}" value="${esc(b.name)}" style="width:260px"></td><td>${b.pages}쪽</td>
       <td>${ip ? `${ip}/${b.pages}쪽 분석 · 문제 ${np}개` : '<span class="mute">분석 전</span>'}</td>
       <td class="l">${us.length ? `<details><summary class="mute">단원 ${us.length}개</summary>${us.map(u => `<div style="font-size:12px">${esc(u.name)} <span class="mute">${u.from}~${u.to}쪽 · ${u.n}문제</span></div>`).join('')}</details>` : ''}</td>
+      <td class="l">${b.sol ? `<span title="${esc(b.sol.name)}">📘 ${esc(b.sol.name.slice(0, 18))} <span class="mute">${b.sol.pages}쪽${b.solIndex && Object.keys(b.solIndex.pages).length ? ` · ${Object.keys(b.solIndex.pages).length}쪽 분석` : ''}</span></span> <button class="btn red sm" data-soldel="${esc(b.id)}">빼기</button>` : ''}
+        <label class="btn gray sm" style="display:inline-block">${b.sol ? '바꾸기' : '해설 PDF 붙이기'}<input type="file" accept="application/pdf" data-soladd="${esc(b.id)}" hidden></label></td>
       <td><button class="btn gray sm" data-bidx="${esc(b.id)}"${BUSY || !aiReady() || ip >= b.pages ? ' disabled' : ''}>${ip ? '나머지 분석' : '전체 분석'}</button>
       <button class="btn red sm" data-bdel="${esc(b.id)}">지우기</button></td></tr>`; }).join('');
   return `<div class="card"><h2>교재 서재</h2>
   <label class="drop" id="bdrop"><input type="file" id="bfiles" multiple accept="application/pdf" hidden>
     <div style="font-size:15px;font-weight:700">교재 PDF를 끌어다 놓거나 눌러서 고르세요</div><div class="mute">한 번 올리면 이 컴퓨터에 저장되어 계속 쓸 수 있습니다</div></label>
   <p class="mute" style="margin:10px 0 0">「분석」은 AI가 쪽마다 단원·문제 번호·난이도를 정리해 두는 작업입니다(한 번만 하면 됨, 100쪽에 약 25번 호출). 분석하지 않아도 자동 출제에서 쪽 범위를 넣으면 그 쪽만 그때 분석합니다.</p>${busyLine()}</div>
-  ${S.books.length ? `<div class="card scroll"><table><tr><th class="l">교재 이름</th><th>쪽수</th><th>분석</th><th class="l">단원</th><th></th></tr>${rows}</table></div>` : ''}`;
+  ${S.books.length ? `<div class="card scroll"><table><tr><th class="l">교재 이름</th><th>쪽수</th><th>분석</th><th class="l">단원</th><th class="l">해설</th><th></th></tr>${rows}</table></div>
+  <p class="mute" style="font-size:12px">해설 PDF를 붙이면 자동 출제 때 고른 문제의 해설 쪽을 찾아(필요한 쪽만 그때 분석) AI에 함께 보냅니다. 「동일 문항」은 해설의 답과 풀이로 정답·채점 기준을 만들고, 바꾼 문항도 해설의 풀이 방법을 참고합니다. 해설이 교재 PDF 뒤쪽에 붙어 있으면 따로 붙이지 않아도 됩니다.</p>` : ''}`;
 }
 const mixOf = o => o.mix || { same: 0, nums: 0, form: 0, newp: 0, [o.mode || 'nums']: 100 };
 function viewAuto(){
@@ -1398,7 +1456,11 @@ function bindAuto(){
     document.querySelectorAll('[data-bidx]').forEach(btn => btn.onclick = () => { const b = S.books.find(x => x.id === btn.dataset.bidx); runBusy('교재 분석 중…', () => indexBook(b)); });
     document.querySelectorAll('[data-bdel]').forEach(btn => btn.onclick = async () => { const b = S.books.find(x => x.id === btn.dataset.bdel); if (!b) return;
       if (!await askConfirm(`「${b.name}」 교재를 지울까요?\n(이 교재로 만든 시험은 그대로 남습니다)`, '지우기')) return;
-      S.books = S.books.filter(x => x.id !== b.id); delete PDFCACHE[b.id]; if (BOOK && BOOK.name === b.name) BOOK = null; save(); render(); DB.del(bookKey(b.id)); toastSoft('교재를 지웠습니다'); });
+      S.books = S.books.filter(x => x.id !== b.id); delete PDFCACHE[b.id]; if (BOOK && BOOK.name === b.name) BOOK = null; save(); render(); DB.del(bookKey(b.id)); if (b.sol) DB.del(bookKey(b.sol.id)); toastSoft('교재를 지웠습니다'); });
+    document.querySelectorAll('[data-soladd]').forEach(inp => inp.onchange = e => { const b = S.books.find(x => x.id === inp.dataset.soladd), f = e.target.files[0]; if (!b || !f) return;
+      runBusy('해설 PDF 저장 중…', async () => { await addSolPdf(b, f); toastSoft('해설 PDF를 붙였습니다'); }); });
+    document.querySelectorAll('[data-soldel]').forEach(btn => btn.onclick = async () => { const b = S.books.find(x => x.id === btn.dataset.soldel); if (!b || !b.sol) return;
+      if (!await askConfirm(`「${b.name}」의 해설 PDF를 뺄까요?`, '빼기')) return; DB.del(bookKey(b.sol.id)); delete PDFCACHE[b.sol.id]; delete b.sol; delete b.solIndex; save(); render(); });
   }
   if ($('aRun')){
     const collect = () => { const nums = v => v.split(/[,\s]+/).filter(Boolean).map(Number).filter(x => isFinite(x));
@@ -1599,7 +1661,8 @@ function viewSet(){
   <p class="mute">맥북 파일 앱에서 내려받은 백업을 불러오면 시험·명단·결과를 그대로 옮길 수 있습니다(답안 그림·교재 PDF 제외).</p></div>`;
   return `<div class="card"><h2>AI 설정</h2>
   <p class="mute">AI 출제·검산·교재 문제 풀이·서술형 채점에 Anthropic API를 씁니다. 키는 이 컴퓨터의 이 브라우저에만 저장되고, 앱은 Anthropic 말고 다른 곳으로 아무것도 보내지 않습니다.</p>
-  <div class="row"><label>API 키 <input id="apiKey" type="password" value="${esc(k)}" style="width:360px" placeholder="sk-ant-..." autocomplete="off"></label>
+  <div class="row"><label>API 키 <input id="apiKey" type="password" value="${esc(k)}" style="width:360px" placeholder="sk-ant-..." autocomplete="off"></label><button class="btn gray sm" id="keyShow" type="button">보기</button>
+    ${CLOUD.on ? `<label><input type="checkbox" id="keySync"${st.syncKey === false ? '' : ' checked'}> 내 계정의 모든 기기에서 이 키 쓰기</label>` : ''}
     <label>모델 <select id="model">${MODELS.map(m => `<option${(st.model || MODELS[0]) === m ? ' selected' : ''}>${m}</option>`).join('')}<option value="custom"${st.model && !MODELS.includes(st.model) ? ' selected' : ''}>직접 입력</option></select></label>
     <input id="modelCustom" value="${st.model && !MODELS.includes(st.model) ? esc(st.model) : ''}" placeholder="모델 이름" style="width:180px;${st.model && !MODELS.includes(st.model) ? '' : 'display:none'}"></div>
   <div class="row" style="margin-top:10px"><button class="btn" id="setSave">저장</button><button class="btn gray" id="setTest"${BUSY ? ' disabled' : ''}>연결 확인</button><button class="btn red" id="setClear">키 지우기</button><span id="setMsg" class="mute"></span></div>
@@ -1817,6 +1880,8 @@ function bind(){
     $('restore').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { const s = JSON.parse(await f.text()); if (!s.exams) throw new Error('백업 파일이 아닙니다');
       if (!await askConfirm('지금 자료를 백업 파일 내용으로 바꿀까요?', '바꾸기')) return; S = s; S.settings = S.settings || {}; S.books = S.books || []; S.exams.forEach(fixExam); save(); render(); } catch(err){ toast(err.message); } };
   }
+  if ($('keyShow')) $('keyShow').onclick = () => { const i = $('apiKey'); i.type = i.type === 'password' ? 'text' : 'password'; $('keyShow').textContent = i.type === 'password' ? '보기' : '숨기기'; };
+  if ($('keySync')) $('keySync').onchange = () => { S.settings.syncKey = $('keySync').checked; save(); };
   if ($('setSave')){
     $('model').onchange = () => { $('modelCustom').style.display = $('model').value === 'custom' ? '' : 'none'; };
     const keep = () => { S.settings.apiKey = $('apiKey').value.trim(); S.settings.model = $('model').value === 'custom' ? ($('modelCustom').value.trim() || MODELS[0]) : $('model').value; save(); };
