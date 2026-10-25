@@ -1586,12 +1586,12 @@ function viewMake(){
     ${AE(ex) ? '' : `<label>시험지 한 쪽에 <select id="mkPer"><option value="1"${(ex.perPage || 1) === 1 ? ' selected' : ''}>1문제</option><option value="2"${ex.perPage === 2 ? ' selected' : ''}>2문제</option></select></label>`}</div>
   ${AE(ex) ? `<div class="row" style="margin-top:8px"><label>문항별 배점 <input id="mkEP" style="width:150px" placeholder="비우면 총점을 똑같이" value="${ex.essPts.join(',')}"></label>
     <label>총점 <input id="mkTotal" style="width:60px" value="${totalOf(ex) || 100}" inputmode="numeric"></label>
-    <button class="btn gray" id="mkApply">배점 적용</button><span class="mute">총 ${totalOf(ex)}점 · 한 쪽에 한 문제, 학생은 문제 아래에 풀이를 쓰고 그 시험지를 스캔해 「채점」에 올립니다.</span></div>`
+    <button class="btn gray" id="mkApply">배점 적용</button>${PRESETS.some(p => p.id === ex.id) ? '' : '<button class="btn red" id="mkDel">이 시험 지우기</button>'}<span class="mute">총 ${totalOf(ex)}점 · 한 쪽에 한 문제, 학생은 문제 아래에 풀이를 쓰고 그 시험지를 스캔해 「채점」에 올립니다.</span></div>`
   : `<div class="row" style="margin-top:8px"><label>정답 배점 모두 <input id="mkAP" style="width:56px" inputmode="decimal" placeholder="5"></label>
     <label>서술형 번호 <input id="mkEQ" style="width:120px" placeholder="예: 8,9,10" value="${essQs(ex).map(i => i+1).join(',')}"></label>
     <label>서술 배점 <input id="mkEP" style="width:110px" placeholder="비우면 자동" value="${essQs(ex).map(i => ex.essPts[i]).join(',')}"></label>
     <label>총점 <input id="mkTotal" style="width:60px" value="100" inputmode="numeric"></label>
-    <button class="btn gray" id="mkApply">배점 적용</button><span class="mute">총 ${totalOf(ex)}점 (정답 ${sum(ex.ansPts)} + 서술 ${sum(ex.essPts)})</span></div>`}</div>
+    <button class="btn gray" id="mkApply">배점 적용</button>${PRESETS.some(p => p.id === ex.id) ? '' : '<button class="btn red" id="mkDel">이 시험 지우기</button>'}<span class="mute">총 ${totalOf(ex)}점 (정답 ${sum(ex.ansPts)} + 서술 ${sum(ex.essPts)})</span></div>`}</div>
   <div class="card"><h2>AI로 출제</h2>
   <div class="row"><label>영역 <select id="gArea">${['기하','정수','대수','조합','혼합(4영역 고르게)'].map(a => `<option${(o.area || '기하') === a ? ' selected' : ''}>${a}</option>`).join('')}</select></label>
     <label>난이도 <select id="gLevel">${['KMO 입문','KMO 기초','KMO 심화','KMO 1차 실전','영재고 대비','영재고 실전'].map(a => `<option${(o.level || (AE(ex) ? '영재고 대비' : 'KMO 심화')) === a ? ' selected' : ''}>${a}</option>`).join('')}</select></label>
@@ -1829,6 +1829,7 @@ function bind(){
     for (const id of ['mkName', 'mkRound', 'mkDate', 'mkCourse']) $(id).onchange = () => { collectMake(); save(); render(); };
     $('mkN').onchange = () => { const ex = exam(); ex.n = +$('mkN').value; fixExam(ex);
       if (AE(ex) && ex.essPts.some(v => !(Number(v) > 0))) ex.essPts = splitEssay(100, ex.essPts.map(() => 1)); save(); render(); };
+    if ($('mkDel')) $('mkDel').onclick = () => deleteExam(exam());
     $('mkType').onchange = () => { collectMake(); const ex = exam(); ex.testType = $('mkType').value; syncName(ex); save(); render(); };
     $('mkKind').onchange = async () => { const ex = exam(), on = $('mkKind').value === '1';
       if (Object.keys(res()).length && !await askConfirm('이 시험에 채점 결과가 있습니다. 출제 형식을 바꾸면 점수 계산이 달라집니다. 바꿀까요?', '바꾸기')){ render(); return; }
@@ -1882,7 +1883,7 @@ function bind(){
     $('exCopy').onclick = async () => { collect(); const base = exam(), id = 'e' + Date.now(), cp = JSON.parse(JSON.stringify(base)); cp.id = id; cp.name = base.name + ' (복사)'; cp.autoName = false;
       for (let i = 0; i < base.n; i++) if (base.probs[i] && base.probs[i].img){ const d = await getImg(probImgKey(base.id, i)); if (d) await setImg(probImgKey(id, i), d); }
       S.exams.push(fixExam(cp)); S.current = id; save(); render(); };
-    if ($('exDel')) $('exDel').onclick = async () => { if (await askConfirm('이 시험과 채점 결과를 지울까요?', '지우기')){ const id = exam().id; S.exams = S.exams.filter(e => e.id !== id); delete S.results[id]; S.current = S.exams[0].id; save(); render(); } };
+    if ($('exDel')) $('exDel').onclick = () => deleteExam(exam());
   }
   if ($('rosterSave')) $('rosterSave').onclick = () => {
     const out = [];
@@ -1918,6 +1919,21 @@ function bind(){
     $('restore').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { const s = JSON.parse(await f.text()); if (!s.exams) throw new Error('백업 파일이 아닙니다');
       if (!await askConfirm('지금 자료를 백업 파일 내용으로 바꿀까요?', '바꾸기')) return; const key = S.settings.apiKey; S = s; S.settings = S.settings || {}; S.books = S.books || []; S.settings.apiKey = key; S.exams.forEach(fixExam); save(); render(); } catch(err){ toast(err.message); } };
   }
+}
+// 시험 지우기: 시험·채점 결과·문제 그림·답안 그림을 지우고, 이 시험에서 쓴 교재 문제를 「낸 문제」에서 뺄지 물음
+async function deleteExam(ex){
+  if (PRESETS.some(p => p.id === ex.id)) return toast('미리 들어 있는 모의고사는 지울 수 없습니다');
+  const nres = Object.keys(S.results[ex.id] || {}).length;
+  if (!await askConfirm(`「${ex.name}」(${ex.date || '날짜 없음'})을 지울까요?${nres ? `\n채점 결과 ${nres}명도 함께 지워집니다.` : ''}`, '지우기')) return;
+  const used = ex.probs.map(p => p && p.book).filter(Boolean);
+  if (used.length && await askConfirm(`이 시험에서 쓴 교재 문제 ${used.length}개(${used.map(u => u.no).join(', ')}번)를 「낸 문제」 목록에서도 뺄까요?\n빼면 다음 자동 출제에서 다시 나올 수 있습니다.`, '빼기')){
+    for (const u of used){ const b = S.books.find(x => x.id === u.id); if (!b) continue;
+      if (b.used) delete b.used[`${u.page}:${u.no}`];
+      if (b.usedNos){ const k = Object.keys(b.usedNos).find(n => sameNo(n, u.no)); if (k && String(b.usedNos[k]).includes(ex.name)) delete b.usedNos[k]; } }
+  }
+  for (let i = 0; i < ex.n; i++){ DB.del(probImgKey(ex.id, i)); delete IMG[probImgKey(ex.id, i)]; }
+  for (const no of Object.keys(S.results[ex.id] || {})) for (let i = 0; i < ex.n; i++){ const k = imgKey(ex.id, no, i); if ((S.results[ex.id][no].essImg || {})[i]){ DB.del(k); delete IMG[k]; } }
+  S.exams = S.exams.filter(e => e.id !== ex.id); delete S.results[ex.id]; S.current = S.exams[0].id; save(); render(); toastSoft('시험을 지웠습니다');
 }
 function setAllEssay(ex, on, total){
   if (on){ ex.allEssay = true; if (!ex.probs.some(p => p && (p.statement || p.img))) ex.n = 5; fixExam(ex);
