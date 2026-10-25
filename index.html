@@ -1222,6 +1222,10 @@ async function locateNos(book, want, opt){  // 분석 안 된 교재에서 번�
     const a = Math.max(1, Math.min(un[0], book.pages - 3)); await indexBook(book, a, a + 3);
   }
 }
+// 이미 낸 문제: 앱에서 낸 것(book.used, 「쪽:번호」) + 직접 적은 번호(book.usedNos { 번호: 언제 })
+const usedNoSet = book => new Set(Object.keys(book.usedNos || {}).map(normNo));
+const isUsed = (book, c, set) => !!((book.used || {})[c.key] || (set || usedNoSet(book)).has(normNo(c.no)) || [...(set || usedNoSet(book))].some(n => sameNo(n, c.no)));
+const usedCount = book => new Set(Object.keys(book.usedNos || {}).map(normNo).concat(Object.keys(book.used || {}).map(k => normNo(k.split(':').slice(1).join(':'))))).size;
 function pickProblems(book, opt, slots){
   let cands = bookCands(book, opt), pinned = [];
   if (opt.want && opt.want.length){
@@ -1231,7 +1235,8 @@ function pickProblems(book, opt, slots){
     if (pinned.length > slots.length || !(opt.units.length || opt.from)) cands = pinned;
   }
   const pk = new Set(pinned.map(c => c.key));
-  if (opt.skipUsed){ const fresh = cands.filter(c => !(book.used || {})[c.key] || pk.has(c.key)); if (fresh.length >= slots.length) cands = fresh; }
+  const uset = usedNoSet(book);
+  if (opt.skipUsed){ const fresh = cands.filter(c => !isUsed(book, c, uset) || pk.has(c.key)); if (fresh.length >= slots.length) cands = fresh; }
   if (cands.length < slots.length) throw new Error(`고른 범위에 문제가 ${cands.length}개뿐입니다(필요 ${slots.length}개). 범위를 넓혀 주세요.`);
   const must = pinned.length < slots.length ? pinned : [];
   const lv = cands.map(c => c.level).sort((a, b) => a - b);
@@ -1244,7 +1249,7 @@ function pickProblems(book, opt, slots){
     if (slots[si].essay && !opt.allEssay) target = Math.max(target, Math.min(5, lv[lv.length - 1], 3));
     let best = null, bs = 1e9;
     for (const c of cands){ if (used.has(c.key)) continue;
-      const sc = Math.abs(c.level - target) * 2 + (unitCnt[c.unit] || 0) * 0.8 + ((book.used || {})[c.key] ? 3 : 0) + Math.random() * 0.6
+      const sc = Math.abs(c.level - target) * 2 + (unitCnt[c.unit] || 0) * 0.8 + (isUsed(book, c, uset) ? 3 : 0) + Math.random() * 0.6
         + (opt.allEssay && c.type ? (typeCnt[c.type] || 0) * 0.4 + (c.type === '구하기' && (typeCnt['구하기'] || 0) >= 2 ? 2 : 0) : 0);
       if (sc < bs){ bs = sc; best = c; } }
     used.add(best.key); unitCnt[best.unit] = (unitCnt[best.unit] || 0) + 1; typeCnt[best.type] = (typeCnt[best.type] || 0) + 1; chosen.push(best);
@@ -1386,7 +1391,8 @@ async function autoMake(o){
     await genFromBook(book, ex, picks, modes, (o.note ? o.note + ' / ' : '') + '이전에 만든 문항의 답이 검산과 달랐습니다. 조건이 모순 없고 답이 하나로 정해지는지 특히 꼼꼼히 확인하세요.', bad);
     BUSY = 'AI가 다시 만든 문항을 검산하는 중…'; render(); await check();
   }
-  picks.forEach(pk => { book.used = book.used || {}; book.used[pk.key] = fmtDate(o.date) || new Date().toISOString().slice(0, 10); });
+  picks.forEach(pk => { const when = fmtDate(o.date) || new Date().toISOString().slice(0, 10); book.used = book.used || {}; book.used[pk.key] = when;
+    book.usedNos = book.usedNos || {}; book.usedNos[normNo(pk.no)] = ex.name ? `${when} ${ex.name}` : when; });
   save();
   return ex;
 }
@@ -1398,6 +1404,7 @@ function viewBooks(){
       <td class="l">${b.sol ? `<span title="${esc(b.sol.name)}">📘 ${esc(b.sol.name.slice(0, 18))} <span class="mute">${b.sol.pages}쪽${b.solIndex && Object.keys(b.solIndex.pages).length ? ` · ${Object.keys(b.solIndex.pages).length}쪽 분석` : ''}</span></span> <button class="btn red sm" data-soldel="${esc(b.id)}">빼기</button>` : ''}
         <label class="btn gray sm" style="display:inline-block">${b.sol ? '바꾸기' : '해설 PDF 붙이기'}<input type="file" accept="application/pdf" data-soladd="${esc(b.id)}" hidden></label></td>
       <td><button class="btn gray sm" data-bidx="${esc(b.id)}"${BUSY || !aiReady() || ip >= b.pages ? ' disabled' : ''}>${ip ? '나머지 분석' : '전체 분석'}</button>
+      <button class="btn gray sm" data-used="${esc(b.id)}">낸 문제${usedCount(b) ? ` ${usedCount(b)}` : ''}</button>
       <button class="btn red sm" data-bdel="${esc(b.id)}">지우기</button></td></tr>`; }).join('');
   return `<div class="card"><h2>교재 서재</h2>
   <label class="drop" id="bdrop"><input type="file" id="bfiles" multiple accept="application/pdf" hidden>
@@ -1426,7 +1433,7 @@ function viewAuto(){
     ${units.length ? `<div class="row" style="margin-top:4px;gap:6px 14px">${units.map(u => `<label style="font-size:13px"><input type="checkbox" class="aUnit" value="${esc(u.name)}"${selU.includes(u.name) ? ' checked' : ''}> ${esc(u.name)} <span class="mute">${u.from}~${u.to}쪽·${u.n}</span></label>`).join('')}</div>` : ''}
     <div class="row" style="margin-top:6px"><label>쪽 <input id="aFrom" style="width:64px" inputmode="numeric" value="${esc(o.from || '')}"> ~ <input id="aTo" style="width:64px" inputmode="numeric" value="${esc(o.to || '')}"></label>
     <label>문항 번호 <input id="aNos" style="width:180px" value="${esc(o.nos || '')}" placeholder="예: 12, 15-18, 23"></label>
-    <label><input type="checkbox" id="aSkip"${o.skipUsed === false ? '' : ' checked'}> 이 교재에서 이미 낸 문제는 빼기</label></div></div>
+    <label><input type="checkbox" id="aSkip"${o.skipUsed === false ? '' : ' checked'}> 이 교재에서 이미 낸 문제는 빼기${b && usedCount(b) ? ` (${usedCount(b)}문제)` : ''}</label> <button class="btn gray sm" type="button" data-used="${b ? esc(b.id) : ''}">낸 문제 적기</button></div></div>
   ${ae ? `<div class="row" style="margin-top:10px"><label>문항 수 <select id="aN">${Array.from({ length: 20 }, (_, k) => k + 1).map(k => `<option${(o.nAE || 5) === k ? ' selected' : ''}>${k}</option>`).join('')}</select></label>
     <label>문항별 배점 <input id="aEP" style="width:130px" value="${esc(o.epAE || '')}" placeholder="비우면 똑같이"></label>
     <label>총점 <input id="aTotal" style="width:64px" value="${esc(o.total || 100)}" inputmode="numeric"></label>
@@ -1462,6 +1469,22 @@ function bindAuto(){
     document.querySelectorAll('[data-soldel]').forEach(btn => btn.onclick = async () => { const b = S.books.find(x => x.id === btn.dataset.soldel); if (!b || !b.sol) return;
       if (!await askConfirm(`「${b.name}」의 해설 PDF를 뺄까요?`, '빼기')) return; DB.del(bookKey(b.sol.id)); delete PDFCACHE[b.sol.id]; delete b.sol; delete b.solIndex; save(); render(); });
   }
+  document.querySelectorAll('[data-used]').forEach(btn => btn.onclick = () => { const b = S.books.find(x => x.id === btn.dataset.used); if (!b) return;
+    const groups = {}; Object.entries(b.usedNos || {}).forEach(([n, w]) => { (groups[w || '이전'] = groups[w || '이전'] || []).push(n); });
+    Object.keys(b.used || {}).forEach(k => { const n = normNo(k.split(':').slice(1).join(':')); if (!(b.usedNos || {})[n]){ const w = b.used[k] || '이전'; (groups[w] = groups[w] || []).push(n); } });
+    const sortN = a => a.sort((x, y) => (parseInt(x) || 0) - (parseInt(y) || 0) || x.localeCompare(y));
+    const txt = Object.entries(groups).map(([w, ns]) => `${w}: ${sortN([...new Set(ns)]).join(', ')}`).join('\n');
+    openModal(`<h2>${esc(b.name)} — 이미 낸 문제</h2>
+      <p class="mute">한 줄에 「언제: 번호들」로 적으세요. 예) <code>1주차: 2, 5, 7, 8, 12</code> · <code>2주차: 14, 19-22</code>. 「언제:」는 빼도 됩니다. 여기 적힌 번호는 자동 출제에서 빠집니다(「이미 낸 문제는 빼기」가 켜져 있을 때). 앱에서 낸 문제는 자동으로 여기에 더해집니다.</p>
+      <textarea id="usedTxt" rows="10" placeholder="1주차: 2, 5, 7, 8, 12&#10;2주차: 14, 19, 21, 22, 24">${esc(txt)}</textarea>
+      <div class="row" style="margin-top:10px"><button class="btn" id="usedSave">저장</button><button class="btn gray" id="usedClose">닫기</button><span class="mute" id="usedCnt"></span></div>`);
+    const cnt = () => { const n = new Set(); $('usedTxt').value.split('\n').forEach(l => { const k = l.indexOf(':'); expandNos(parseNos(k >= 0 ? l.slice(k + 1) : l), []).forEach(x => n.add(x)); }); $('usedCnt').textContent = `${n.size}문제`; };
+    cnt(); $('usedTxt').oninput = cnt; $('usedClose').onclick = closeModal;
+    $('usedSave').onclick = () => { const map = {};
+      $('usedTxt').value.split('\n').forEach(l => { if (!l.trim()) return; const k = l.indexOf(':'), w = k >= 0 ? l.slice(0, k).trim() : '이전', body = k >= 0 ? l.slice(k + 1) : l;
+        expandNos(parseNos(body), []).forEach(n => { map[n] = w; }); });
+      b.usedNos = map; b.used = Object.fromEntries(Object.entries(b.used || {}).filter(([k]) => map[normNo(k.split(':').slice(1).join(':'))] !== undefined));
+      save(); closeModal(); render(); toastSoft(`이미 낸 문제 ${Object.keys(map).length}개를 저장했습니다`); }; });
   if ($('aRun')){
     const collect = () => { const nums = v => v.split(/[,\s]+/).filter(Boolean).map(Number).filter(x => isFinite(x));
       const prev = S.settings.autoLast || {}, kind = (document.querySelector('[name=aKind]:checked') || {}).value || '0', ae = kind === '1', v = id => $(id) ? $(id).value.trim() : '';
