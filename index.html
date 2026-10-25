@@ -19,7 +19,8 @@
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif}
 header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line)}
 .wrap{max-width:1180px;margin:0 auto;padding:0 18px}
-.top{display:flex;align-items:center;gap:16px;min-height:56px;flex-wrap:wrap}
+.top{display:flex;align-items:center;gap:8px 16px;min-height:56px;flex-wrap:wrap;padding-top:calc(12px + env(safe-area-inset-top, 0px))}
+#cloudBadge{display:inline-flex;align-items:center}
 .brand{font-weight:800;font-size:17px;letter-spacing:-.3px}
 .brand small{font-weight:500;color:var(--mute);font-size:12px;margin-left:6px}
 nav{display:flex;gap:2px;margin-left:auto;flex-wrap:wrap}
