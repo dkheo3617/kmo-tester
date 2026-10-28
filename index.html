@@ -1844,6 +1844,10 @@ function bankFigNames(r){ const t = [r.지시문, r.본문, ...(r.선택지 || [
 function bankFigFile(r, name){ const p = (r.그림파일 || []).find(x => x.endsWith('/' + name) || x === name); return (p && BANK.files.get(p.normalize('NFC'))) || BANK.byName[name] || null; }
 function bankNeedsDrawing(r){ return /\[\[도형\]\]/.test([r.지시문, r.본문, ...(r.선택지 || [])].join(' ')) || ((r.그림데이터 || []).length > 0); }
 function bankUsed(){ return S.bankUsed || (S.bankUsed = {}); }
+function bankParseNos(q){   // 「1~30」, 「5, 9-11, 30」 → [[1,30]] / [[5,5],[9,11],[30,30]] (번호만 있을 때)
+  if (!/^[\d\s,~\-–]+$/.test(q) || !/\d/.test(q)) return null;
+  return q.split(/[,\s]+/).filter(Boolean).map(t => { const m = t.match(/^(\d+)(?:[~\-–](\d+))?$/); if (!m) return null; const a = +m[1], b = m[2] ? +m[2] : a; return [Math.min(a, b), Math.max(a, b)]; }).filter(Boolean);
+}
 async function bankFilter(){
   const f = BANK.f, ents = bankEntries().filter(e => !f.group || bankGroupOf(e) === f.group);
   let rs = await bankLoadEntries(ents);
@@ -1852,7 +1856,9 @@ async function bankFilter(){
   if (f.form) rs = rs.filter(r => f.form === '증명' ? bankAnswer(r) === '(증명)' : (r.형식 || '').startsWith(f.form));
   if (f.intOnly) rs = rs.filter(r => bankIntAns(r) !== null);
   if (f.skipUsed) rs = rs.filter(r => !bankUsed()[r.id]);
-  if (f.q){ const q = f.q.trim(); rs = rs.filter(r => (r.id + ' ' + bankStatement(r).replace(/\$[^$]*\$/g, ' ') + ' ' + (r.유형 || '')).includes(q)); }
+  if (f.q){ const q = f.q.trim(), nos = bankParseNos(q);
+    if (nos) rs = rs.filter(r => { const a = String((r.출처 || {}).번호 ?? '').split('~').map(Number), lo = a[0], hi = a[1] || a[0]; return nos.some(([x, y]) => lo <= y && hi >= x); });
+    else rs = rs.filter(r => (r.id + ' ' + bankStatement(r).replace(/\$[^$]*\$/g, ' ') + ' ' + (r.유형 || '')).includes(q)); }
   BANK.list = rs; BANK.page = 0;
 }
 const BANK_PAGE = 40;
@@ -1884,7 +1890,7 @@ function viewBank(head, common){
     <label>과정 <select id="bkGroup"><option value="">전체</option>${groups.map(g => `<option${g === f.group ? ' selected' : ''}>${esc(g)}</option>`).join('')}</select></label>
     <label>난이도 <select id="bkLv"><option value="">전체</option>${[1, 2, 3, 4, 5].map(k => `<option${String(k) === f.lv ? ' selected' : ''}>${k}</option>`).join('')}</select></label>
     <label>형식 <select id="bkForm">${[['', '전체'], ['단답형', '단답형'], ['객관식', '객관식'], ['소문항형', '소문항형'], ['서술형', '서술형'], ['증명', '증명']].map(([v, l]) => `<option value="${v}"${v === f.form ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-    <input id="bkQ" placeholder="검색 (문제 글·유형·번호)" value="${esc(f.q)}" style="width:170px"></div>
+    <input id="bkQ" placeholder="번호(1~30, 5,9-11) 또는 글 검색" value="${esc(f.q)}" style="width:170px"></div>
   ${units.length ? `<div class="row" style="margin-top:8px;gap:4px 12px"><span class="mute" style="font-size:12px">단원</span>${units.map(u => `<label style="font-size:13px"><input type="checkbox" class="bkUnit" value="${esc(u)}"${f.units.includes(u) ? ' checked' : ''}> ${esc(u)}</label>`).join('')}</div>` : ''}
   <div class="row" style="margin-top:8px"><label><input type="checkbox" id="bkInt"${f.intOnly ? ' checked' : ''}> 정답이 0~999 정수인 문제만</label>
     <label><input type="checkbox" id="bkSkip"${f.skipUsed ? ' checked' : ''}> 이미 낸 문제 빼기</label>
