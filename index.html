@@ -1391,6 +1391,7 @@ function splitEssay(total, weights){       // 서술 총점을 문항 무게대�
 }
 const fmtDate = v => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || ''); return m ? `${m[1].slice(2)}. ${+m[2]}. ${+m[3]}` : (v || ''); };
 async function autoMake(o){
+  if (isBankBook(o.bookId)) return bankAutoMake(o);
   const book = S.books.find(b => b.id === o.bookId);
   if (!book) throw new Error('교재를 골라 주세요');
   const ae = o.kind === '1'; o.allEssay = ae;
@@ -1605,31 +1606,31 @@ function planHTML(){
 }
 let PLAN_SKIP = [];
 function viewAuto(){
-  const o = S.settings.autoLast || {}, mode = S.settings.autoMode || 'ai';
+  const o = S.settings.autoLast || {}, mode = (S.settings.autoMode === 'bank' ? 'ai' : S.settings.autoMode) || 'ai';
   const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10), ae = o.kind === '1';
   const seg = (name, val, opts) => `<div class="seg">${opts.map(([v, l]) => `<label><input type="radio" name="${name}" value="${v}"${val === v ? ' checked' : ''}><span>${l}</span></label>`).join('')}</div>`;
   const common = `<label>반 <select id="aCourse">${classesList().map(c => `<option${(o.course || classesList()[0]) === c ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
     <label>유형 <select id="aType">${TEST_TYPES.map(t => `<option${(o.testType || '단원테스트') === t ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
     <label>날짜 <input type="date" id="aDate" value="${esc(o.date || today)}"></label>`;
-  const head = `<div class="row" style="justify-content:space-between;margin-bottom:14px">${seg('aMode', mode, [['ai', 'AI로 만들기'], ['bank', '문제은행에서 고르기'], ['up', '만든 시험지 올리기']])}
+  const head = `<div class="row" style="justify-content:space-between;margin-bottom:14px">${seg('aMode', mode, [['ai', 'AI로 만들기'], ['up', '만든 시험지 올리기']])}
     ${seg('aKind', ae ? '1' : '0', [['0', '정답형 + 서술형'], ['1', '전부 서술형']])}</div>`;
-  if (mode === 'up') return `<div class="card"><div class="row" style="margin-bottom:14px">${seg('aMode', mode, [['ai', 'AI로 만들기'], ['bank', '문제은행에서 고르기'], ['up', '만든 시험지 올리기']])}</div>
+  if (mode === 'up') return `<div class="card"><div class="row" style="margin-bottom:14px">${seg('aMode', mode, [['ai', 'AI로 만들기'], ['up', '만든 시험지 올리기']])}</div>
     <label class="drop" id="uDrop" style="padding:38px"><input type="file" id="uFiles" multiple accept="application/pdf,.hwp,.hwpx" hidden>
       <div style="font-size:16px;font-weight:700">시험지·해설 PDF나 폴더를 여기에 끌어다 놓으세요</div>
       <div class="mute">파일 이름의 [시험지]·[해설]·날짜([261026])로 짝을 맞추고, 반·유형·형식도 알아서 정합니다</div></label>
     <div class="row" style="margin-top:8px"><label class="btn gray sm" style="display:inline-block">폴더 고르기<input type="file" id="uDir" webkitdirectory multiple hidden></label>
       <span class="mute" style="font-size:12px">이름에서 못 알아내면:</span>${common.replace('id="aDate"', 'id="aDate" style="display:none"').replace('<label>날짜 ', '<label style="display:none">')}</div>
     <div id="uPlan">${UPLAN.length ? planHTML() : ''}</div>${busyLine()}</div>`;
-  if (mode === 'bank') return viewBank(head, common);
-  if (!S.books.length) return `<div class="card">${head}<p>AI로 만들려면 먼저 「교재」 탭에서 교재 PDF를 올려 주세요.</p></div>`;
-  const b = S.books.find(x => x.id === o.bookId) || S.books[0];
-  const units = b ? bookUnits(b) : [], selU = (o.bookId === (b && b.id) ? o.units : null) || [];
-  const mix = mixOf(o), uc = b ? usedCount(b) : 0;
+  if (!S.books.length && !BANK.index) return `<div class="card">${head}<p>교재를 고르려면 문제은행을 불러오거나 「교재」 탭에서 교재 PDF를 올려 주세요.</p><div class="row">${bankLoadButtonsHTML()}</div>${BANK.err ? `<p style="color:var(--red)">${esc(BANK.err)}</p>` : ''}${busyLine()}</div>`;
+  const bid = (isBankBook(o.bookId) && BANK.index) || S.books.some(x => x.id === o.bookId) ? o.bookId : (S.books[0] ? S.books[0].id : 'bank:' + bankAllGroups()[0]);
+  const isB = isBankBook(bid), b = isB ? null : S.books.find(x => x.id === bid);
+  const units = isB ? bankUnitsOf(bid.slice(5)).map(name => ({ name })) : (b ? bookUnits(b) : []), selU = (o.bookId === bid ? o.units : null) || [];
+  const mix = mixOf(o), uc = b ? usedCount(b) : 0, onlySame = Object.keys(SIM).every(k => k === 'same' ? +mix[k] > 0 : !(+mix[k] > 0));
   const sumTxt = [Object.keys(SIM).filter(k => +mix[k] > 0).map(k => `${SIM[k].label} ${mix[k]}%`).join(' · '), o.skipUsed !== false && uc ? `이미 낸 ${uc}문제 빼기` : ''].filter(Boolean).join(' · ');
   return `<div class="card">${head}
-  <div class="row"><label>교재 <select id="aBook">${S.books.map(x => `<option value="${esc(x.id)}"${b && x.id === b.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>${common}</div>
-  <div class="row" style="margin-top:12px"><label>문항 번호 <input id="aNos" style="width:150px" value="${esc(o.nos || '')}" placeholder="예: 1-79"></label>
-    <label>또는 쪽 <input id="aFrom" style="width:56px" inputmode="numeric" value="${esc(o.from || '')}"> ~ <input id="aTo" style="width:56px" inputmode="numeric" value="${esc(o.to || '')}"></label>
+  <div class="row"><label>교재 <select id="aBook">${S.books.length ? `<optgroup label="교재 PDF">${S.books.map(x => `<option value="${esc(x.id)}"${b && x.id === b.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''}${BANK.index ? `<optgroup label="문제은행">${bankAllGroups().map(g => `<option value="bank:${esc(g)}"${bid === 'bank:' + g ? ' selected' : ''}>${esc(g)}</option>`).join('')}</optgroup>` : ''}</select></label>${BANK.index ? '' : bankLoadButtonsHTML()}${common}</div>
+  <div class="row" style="margin-top:12px"><label>문항 번호 <input id="aNos" style="width:150px" value="${esc(o.nos || '')}" placeholder="${isB ? '예: 1~30, 5,9-11' : '예: 1-79'}"></label>
+    <label${isB ? ' style="display:none"' : ''}>또는 쪽 <input id="aFrom" style="width:56px" inputmode="numeric" value="${esc(o.from || '')}"> ~ <input id="aTo" style="width:56px" inputmode="numeric" value="${esc(o.to || '')}"></label>
     <label>문항 수 <select id="aN">${(ae ? Array.from({ length: 20 }, (_, k) => k + 1) : [10, 20]).map(k => `<option${(ae ? (o.nAE || 5) : (o.n || 10)) === k ? ' selected' : ''}>${k}</option>`).join('')}</select></label>
     ${ae ? '' : `<label>서술형 번호 <input id="aEQ" style="width:90px" value="${esc(o.eq || '')}" placeholder="8,9,10"></label>`}
     <label>총점 <input id="aTotal" style="width:56px" value="${esc(o.total || 100)}" inputmode="numeric"></label></div>
@@ -1637,15 +1638,16 @@ function viewAuto(){
   <details id="aMore" style="margin-top:12px"${S.settings.autoMoreOpen ? ' open' : ''}><summary class="mute" style="cursor:pointer">세부 설정 <span style="font-size:12px">${esc(sumTxt)}</span></summary>
     <div class="more">
       <div class="row"><span class="lab">문항 유사도</span>${Object.entries(SIM).map(([k, v]) => `<label>${v.label} <input class="aMix" data-k="${k}" style="width:48px" inputmode="numeric" value="${esc(mix[k] || 0)}">%</label>`).join('')}<span class="mute" id="aMixOut"></span></div>
-      <div class="row"><span class="lab">이미 낸 문제</span><label><input type="checkbox" id="aSkip"${o.skipUsed === false ? '' : ' checked'}> 빼기${uc ? ` (${uc}문제)` : ''}</label><button class="btn gray sm" type="button" data-used="${b ? esc(b.id) : ''}">낸 문제 적기</button>
+      <div class="row"><span class="lab">이미 낸 문제</span><label><input type="checkbox" id="aSkip"${o.skipUsed === false ? '' : ' checked'}> 빼기${uc ? ` (${uc}문제)` : ''}</label>${isB ? '' : `<button class="btn gray sm" type="button" data-used="${b ? esc(b.id) : ''}">낸 문제 적기</button>`}
         ${ae ? `<label><input type="checkbox" id="aExact"${o.nExact ? ' checked' : ''}> 문항 번호 개수만큼 출제</label>` : ''}</div>
       <div class="row"><span class="lab">배점</span>${ae ? `<label>문항별 <input id="aEP" style="width:120px" value="${esc(o.epAE || '')}" placeholder="비우면 똑같이"></label>`
         : `<label>정답 <input id="aAP" style="width:90px" value="${esc(o.ap || '5')}" placeholder="5"></label><label>서술 <input id="aEP" style="width:90px" value="${esc(o.ep || '')}" placeholder="비우면 자동"></label>`}</div>
       <div class="row"><span class="lab">시험 이름</span><input id="aTitle" placeholder="비우면 「반 유형」" style="width:200px"></div>
       <div class="row"><span class="lab">추가 요청</span><input id="aNote" style="flex:1;min-width:220px" value="${esc(o.note || '')}" placeholder="${ae ? '예: 구하는 문제 1~2개, 나머지는 증명' : '예: 그림은 크게'}"></div>
     </div></details>
-  <div class="row" style="margin-top:16px"><button class="btn big" id="aRun"${BUSY || !aiReady() ? ' disabled' : ''}>AI로 시험지 만들기</button>
-    ${!aiReady() ? '<span class="mute">「설정」에 API 키를 넣어 주세요.</span>' : '<span class="mute">1~3분 걸립니다.</span>'}</div>${busyLine()}</div>`;
+  ${isB ? bankPickPanelHTML() : ''}
+  <div class="row" style="margin-top:16px"><button class="btn big" id="aRun"${BUSY || (!aiReady() && !(isB && onlySame)) ? ' disabled' : ''}>${isB && BANK.sel.length ? `고른 ${BANK.sel.length}문제로 ` : ''}${isB && onlySame ? '시험지 만들기' : 'AI로 시험지 만들기'}</button>
+    ${!aiReady() ? (isB ? (onlySame ? '<span class="mute">교재 문제를 그대로 씁니다.</span>' : '<span class="mute">숫자·형태를 바꾸려면 「설정」에 API 키가 필요합니다(동일 문항 100%는 키 없이 됨).</span>') : '<span class="mute">「설정」에 API 키를 넣어 주세요.</span>') : '<span class="mute">1~3분 걸립니다.</span>'}</div>${busyLine()}</div>`;
 }
 function bindAuto(){
   const $ = id => document.getElementById(id);
@@ -1680,9 +1682,7 @@ function bindAuto(){
       b.usedNos = map; b.used = Object.fromEntries(Object.entries(b.used || {}).filter(([k]) => map[normNo(k.split(':').slice(1).join(':'))] !== undefined));
       save(); closeModal(); render(); toastSoft(`이미 낸 문제 ${Object.keys(map).length}개를 저장했습니다`); }; });
   document.querySelectorAll('[name=aMode]').forEach(r => r.onchange = () => { S.settings.autoMode = r.value; save(); render(); });
-  if (document.getElementById('bkDir') || document.getElementById('bkBook') || document.getElementById('bkDrive')){
-    document.querySelectorAll('[name=aKind]').forEach(r => r.onchange = () => { S.settings.autoLast = { ...(S.settings.autoLast || {}), kind: r.value }; save(); render(); });
-    bindBank(); }
+  if (document.getElementById('bkDir') || document.getElementById('bkDrive') || document.getElementById('bkPickBox')){ bindBank(); bankAIHook(); }
   if ($('uDrop')){
     $('aCourse').onchange = $('aType').onchange = () => { S.settings.autoLast = { ...(S.settings.autoLast || {}), course: $('aCourse').value, testType: $('aType').value }; save(); };
     const take = async list => { S.settings.autoLast = { ...(S.settings.autoLast || {}), course: $('aCourse').value, testType: $('aType').value }; save(); BUSY = '파일 살펴보는 중…'; render();
@@ -1714,7 +1714,7 @@ function bindAuto(){
       if (o.from && !o.to) o.to = o.from;
       S.settings.autoLast = { ...o, title: '' }; save();
       return ae ? { ...o, n: o.nAE, ansPts: [], essQ: [], essP: nums(o.epAE) } : { ...o, nExact: false, ansPts: nums(o.ap), essQ: nums(o.eq), essP: nums(o.ep) }; };
-    $('aBook').onchange = () => { collect(); S.settings.autoLast.units = []; save(); render(); };
+    $('aBook').onchange = () => { collect(); S.settings.autoLast.units = []; BANK.sel = []; BANK.listKey = ''; save(); render(); };
     document.querySelectorAll('[name=aKind]').forEach(r => r.onchange = () => { const t = $('aTitle').value; collect(); render(); if ($('aTitle')) $('aTitle').value = t; });
     $('aMore').ontoggle = e => { S.settings.autoMoreOpen = e.target.open; save(); };
     const mixOut = () => { const ae = (document.querySelector('[name=aKind]:checked') || {}).value === '1', n = +$('aN').value || (ae ? 5 : 10), m = {};
@@ -1965,11 +1965,13 @@ async function bankMakeExam(o){
   BANK.sel = []; save(); return ex;
 }
 function bindBank(){
-  const $ = id => document.getElementById(id); if (!$('bkDir') && !$('bkBook') && !$('bkDrive')) return;
+  const $ = id => document.getElementById(id); if (!$('bkDir') && !$('bkBook') && !$('bkDrive') && !$('bkPickBox')) return;
   const rer = () => { render(); };
-  if ($('bkDir')) $('bkDir').onchange = e => runBusy('문제은행 읽는 중…', async () => { BANK.err = ''; try { await bankLoadFolder(e.target.files); await bankFilter(); } catch(err){ BANK.err = err.message || String(err); } });
-  if ($('bkDrive')) $('bkDrive').onclick = () => runBusy('구글드라이브에서 문제은행 읽는 중…', async () => { BANK.err = ''; try { await bankLoadDrive(); await bankFilter(); } catch(err){ BANK.err = err.message || String(err); if (BANK.src !== 'drive') BANK.index = null; toast(BANK.err); } });
-  if (!$('bkBook')) return;
+  const afterLoad = () => { const ol = S.settings.autoLast = S.settings.autoLast || {}; if (!S.books.some(b => b.id === ol.bookId) && !isBankBook(ol.bookId)){ ol.bookId = 'bank:' + bankAllGroups()[0]; ol.units = []; } BANK.listKey = ''; save(); };
+  if ($('bkDir')) $('bkDir').onchange = e => runBusy('문제은행 읽는 중…', async () => { BANK.err = ''; try { await bankLoadFolder(e.target.files); afterLoad(); } catch(err){ BANK.err = err.message || String(err); toast(BANK.err); } });
+  if ($('bkDrive')) $('bkDrive').onclick = () => runBusy('구글드라이브에서 문제은행 읽는 중…', async () => { BANK.err = ''; try { await bankLoadDrive(); afterLoad(); } catch(err){ BANK.err = err.message || String(err); if (BANK.src !== 'drive') BANK.index = null; toast(BANK.err); } });
+  if ($('bkPickBox')) $('bkPickBox').ontoggle = e => { S.settings.bankPickOpen = e.target.open; save(); };
+  if ($('bkBook')){
   const refilter = () => { const k = ++BANK.seq; BANK.busy = true; render(); bankFilter().then(() => { if (k === BANK.seq){ BANK.busy = false; render(); } }).catch(e => { BANK.busy = false; toast(e.message || String(e)); render(); }); };
   $('bkBook').onchange = e => { BANK.f.book = e.target.value; BANK.f.group = ''; BANK.f.units = []; refilter(); };
   $('bkGroup').onchange = e => { BANK.f.group = e.target.value; BANK.f.units = []; refilter(); };
@@ -1979,6 +1981,7 @@ function bindBank(){
   $('bkInt').onchange = e => { BANK.f.intOnly = e.target.checked; refilter(); };
   $('bkSkip').onchange = e => { BANK.f.skipUsed = e.target.checked; refilter(); };
   document.querySelectorAll('.bkUnit').forEach(c => c.onchange = () => { BANK.f.units = [...document.querySelectorAll('.bkUnit:checked')].map(x => x.value); refilter(); });
+  }
   if ($('bkMore')) $('bkMore').onclick = () => { BANK.page++; rer(); };
   if ($('bkRand')) $('bkRand').onclick = () => { bankPickRandom(Math.max(1, Math.min(20, +$('bkRandN').value || 10))); rer(); };
   if ($('bkClear')) $('bkClear').onclick = () => { BANK.sel = []; rer(); };
@@ -1994,6 +1997,161 @@ function bindBank(){
     runBusy('시험지 만드는 중…', async () => { const ex = await bankMakeExam(o); TAB = 'list'; setTimeout(() => toastSoft(`「${ex.name}」을 만들었습니다 (${ex.n}문항)`), 50); });
   };
   bankPaintFigs();
+}
+
+// ---- 「AI로 만들기」 안에서 문제은행 교재 쓰기 (교재 값 'bank:<과정>') ----
+const isBankBook = id => String(id || '').startsWith('bank:');
+function bankGroupEntries(group){ return BANK.index ? BANK.index.파일.filter(e => bankGroupOf(e) === group) : []; }
+function bankUnitsOf(group){ return [...new Set(bankGroupEntries(group).map(e => (e.단원번호 ? String(e.단원번호).padStart(2, '0') + ' ' : '') + (e.단원명 || '')))].filter(u => u.trim()); }
+function bankAllGroups(){ return BANK.index ? [...new Set(BANK.index.파일.map(bankGroupOf))] : []; }
+async function bankCands(o){
+  const group = String(o.bookId).slice(5); let rs = await bankLoadEntries(bankGroupEntries(group));
+  if (o.units && o.units.length) rs = rs.filter(r => o.units.includes(bankUnitName(r)));
+  const nos = o.nos ? bankParseNos(String(o.nos)) : null;
+  if (nos) rs = rs.filter(r => { const a = String((r.출처 || {}).번호 ?? '').split('~').map(Number), lo = a[0], hi = a[1] || a[0]; return nos.some(([x, y]) => lo <= y && hi >= x); });
+  return rs;
+}
+function bankPick(cands, slots, o, modes){
+  let pool = cands.slice();
+  if (o.skipUsed){ const fresh = pool.filter(r => !bankUsed()[r.id]); if (fresh.length >= slots.length) pool = fresh; }
+  if (pool.length < slots.length) throw new Error(`고른 범위에 문제가 ${pool.length}개뿐입니다(필요 ${slots.length}개). 범위를 넓혀 주세요.`);
+  const lv = pool.map(r => r.난이도 || 3).sort((a, b) => a - b), order = slots.map((s, i) => i).sort((a, b) => (slots[a].w - slots[b].w) || (a - b));
+  const used = new Set(), unitCnt = {}, chosen = [];
+  order.forEach((si, rank) => {
+    let target = lv[Math.min(lv.length - 1, Math.floor((rank + 0.5) / slots.length * lv.length))];
+    if (slots[si].essay && !o.allEssay) target = Math.max(target, Math.min(5, lv[lv.length - 1], 3));
+    const wantInt = !o.allEssay && !slots[si].essay && modes[si] === 'same';
+    let best = null, bs = 1e9;
+    for (const r of pool){ if (used.has(r.id)) continue; const u = bankUnitName(r);
+      const sc = Math.abs((r.난이도 || 3) - target) * 2 + (unitCnt[u] || 0) * 0.8 + (wantInt && bankIntAns(r) === null ? 2.5 : 0) + (bankNeedsDrawing(r) ? 1.5 : 0) + Math.random() * 0.6;
+      if (sc < bs){ bs = sc; best = r; } }
+    used.add(best.id); unitCnt[bankUnitName(best)] = (unitCnt[bankUnitName(best)] || 0) + 1; chosen.push(best);
+  });
+  chosen.sort((a, b) => (a.난이도 || 3) - (b.난이도 || 3));
+  const out = Array(slots.length); order.forEach((si, k) => out[si] = chosen[k]); return out;
+}
+function bankSrc(r){ const o = r.출처 || {}; return `${o.교재 || ''} ${o.단원명 || ''} ${o.번호 ?? ''}번`.replace(/\s+/g, ' ').trim(); }
+function bankDefaultRubric(r, ep){ const a = bankAnswer(r), proof = a === '(증명)';
+  return proof ? [{ desc: '증명의 핵심 단계(필요한 성질·정리를 바르게 사용)', points: Math.round(ep * 0.7) }, { desc: '논리의 완결성(빠진 경우·순환논리 없음)', points: ep - Math.round(ep * 0.7) }]
+    : [{ desc: '풀이 과정(식·근거)', points: Math.round(ep * 0.6) }, { desc: `정답 ${bankPlain(a)}`, points: ep - Math.round(ep * 0.6) }]; }
+async function bankCopyProb(ex, i, r, mode){       // 교재 문제 그대로 (AI 없이)
+  const ae = AE(ex), a = bankAnswer(r), proof = a === '(증명)', p = ex.probs[i] = { mode, src: `${bankSrc(r)} · ${SIM[mode].label}`, area: (r.출처 || {}).단원명 || '', bankId: r.id };
+  p.statement = bankStatement(r); p.type = proof ? '증명' : '구하기';
+  const solTxt = bankClean(r.해설); p.solution = (a && !proof ? `정답: $${a}$\n` : '') + (solTxt || '(교재 해설 그림 참고 · 문제은행 ' + r.id + ')');
+  ex.answers[i] = ae ? (proof ? '' : a.slice(0, 80)) : (bankIntAns(r) ?? '');
+  const ep = Number(ex.essPts[i]) || 0; p.rubric = ep ? bankDefaultRubric(r, ep) : [];
+  p.svg = ''; p.img = false; await DB.del(probImgKey(ex.id, i)); delete IMG[probImgKey(ex.id, i)];
+  const d = await bankFigureDataURL(r); if (d){ await setImg(probImgKey(ex.id, i), d); p.img = true; }
+}
+async function bankSolImages(r){ const out = []; for (const nm of [...String(r.해설 || '').matchAll(/\[\[img:([^\]]+)\]\]/g)].map(m => m[1].normalize('NFC')).slice(0, 2)){
+  const u = await bankImgURL(r, nm); if (!u) continue; const im = new Image(); await new Promise(ok => { im.onload = ok; im.onerror = ok; im.src = u; }); if (!im.naturalWidth) continue;
+  const c = document.createElement('canvas'), s = Math.min(1, 1400 / im.naturalWidth); c.width = Math.round(im.naturalWidth * s); c.height = Math.round(im.naturalHeight * s);
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height); out.push(c.toDataURL('image/jpeg', 0.82)); } return out; }
+async function bankGen(ex, picks, modes, note, only){   // 숫자만 변경·형태 변화·새 문제(그리고 정수 답이 필요한 동일 문항)를 AI로
+  const idx = picks.map((r, i) => i).filter(i => picks[i] && (!only || only.includes(i)));
+  const ae = AE(ex); let done = 0;
+  for (let k = 0; k < idx.length; k += 3){
+    const grp = idx.slice(k, k + 3); BUSY = `AI가 문제를 만드는 중… ${done}/${idx.length}문항`; render();
+    const content = [], figs = {};
+    for (const i of grp){ const r = picks[i], a = bankAnswer(r);
+      content.push({ type: 'text', text: `[slot ${i+1} 원래 문제 · ${bankSrc(r)}]\n${bankStatement(r)}\n정답: ${a || '(없음)'}\n교재 풀이: ${bankClean(r.해설).slice(0, 1800) || '(그림)'}` });
+      const d = await bankFigureDataURL(r); if (d){ figs[i] = d; content.push({ type: 'text', text: `[slot ${i+1} 원래 문제 그림]` }, imgPart(d)); }
+      if (!bankClean(r.해설)) for (const s of await bankSolImages(r)) content.push({ type: 'text', text: `[slot ${i+1} 교재 해설 그림]` }, imgPart(s)); }
+    const used = [...new Set(grp.map(i => modes[i]))];
+    const simT = m => { let t = SIM[m].text.replace('figure 를 {"type":"crop","page":쪽,"bbox":[x0,y0,x1,y1]} 로 교재 그림 영역(쪽 그림 기준 0~1 비율, 그림만 넉넉히)을 줍니다', 'figure 를 {"type":"orig"} 로 둡니다(원래 그림을 그대로 씀)').replace('crop 을 써도 됩니다', '{"type":"orig"} 를 써도 됩니다');
+      return ae ? t.replace(/ 답이 0~999 정수가 아니면[^.]*\. ?/, ' ').replace('조건이 성립하고 답이 0~999 정수가 되게 합니다.', '조건이 성립하고 결론이 하나로 정해지게 합니다.') : t; };
+    const slotLines = grp.map(i => { const ep = Number(ex.essPts[i]) || 0, how = `방식 「${SIM[modes[i]].label}」`;
+      return ae ? `- slot ${i+1}: 위 「slot ${i+1} 원래 문제」 → 시험 ${i+1}번, ${how}, 서술형 ${ep}점(rubric 단계별 점수 합 ${ep})`
+        : `- slot ${i+1}: 위 「slot ${i+1} 원래 문제」 → 시험 ${i+1}번, ${how}, 정답 배점 ${ex.ansPts[i]}점${ep ? `, 서술형 ${ep}점(풀이를 쓰게 하는 문제로, rubric 단계별 점수 합 ${ep})` : ''}`; }).join('\n');
+    content.push({ type: 'text', text: `위 교재 문제(문제은행)를 바탕으로 시험 문항을 만들어 주세요. 문항마다 정해진 방식으로 만듭니다. 교재 정답·풀이가 있으면 그것을 참고하되, 바뀐 조건으로 다시 계산합니다.
+${used.map(m => `방식 「${SIM[m].label}」 — ${simT(m)}`).join('\n')}
+${ex.testType && TYPE_HINT[ex.testType] ? '시험 유형: ' + TYPE_HINT[ex.testType] + '\n' : ''}공통 규칙: ${ae ? '모든 문항이 서술형이고 학생은 시험지의 문제 아래에 풀이를 씁니다. 답은 정수가 아니어도 되고, 증명·작도 문항은 answer 를 "증명"/"작도"로 둡니다. 모든 문항에 rubric(단계별 채점 기준, 점수 합 = 그 문항 배점)을 줍니다. type 은 "증명"/"구하기"/"작도".' : '모든 문항의 최종 답은 0 이상 999 이하의 정수 하나.'} 그림은 figure 로 {"type":"orig"}(원래 그림 그대로, 숫자를 바꿨으면 쓰지 말 것) / {"type":"svg","svg":"..."} / null. 문제 문장만 읽고 풀 수 있게 완결되게 쓰고 "다음 그림과 같이" 대신 조건을 문장으로도 적습니다. 각 문항을 ${ae ? '직접 풀어 조건에 모순이 없고 결론이 성립하는지' : '서로 다른 방법으로 두 번 풀어 답을'} 확인하고 check 에 한 줄로 적습니다. solution 은 학생용 단계별 풀이(사용한 정리 이름).${ae ? '' : ' 서술형이 아닌 문항의 rubric 은 [].'}
+${note ? '추가 요청: ' + note + '\n' : ''}만들 문항:
+${slotLines}
+출력(JSON 하나): {"items":[{"slot":1,${ae ? '"type":"증명",' : ''}"statement":"...","figure":null,"answer":${ae ? '"증명"' : '123'},"solution":"...","rubric":[{"desc":"...","points":5}],"check":"...","note":""}]}` });
+    const j = parseJSON(await callAI(content, { max: 24000, system: SYS }));
+    for (const it of j.items || []){
+      const i = Number(it.slot) - 1; if (!grp.includes(i)) continue;
+      const r = picks[i], p = ex.probs[i] = { mode: modes[i], src: `${bankSrc(r)} · ${SIM[modes[i]].label}`, area: (r.출처 || {}).단원명 || '', bankId: r.id };
+      p.statement = String(it.statement || ''); p.solution = String(it.solution || ''); p.check = String(it.check || '') + (it.note ? ` (변경: ${it.note})` : '');
+      p.rubric = Number(ex.essPts[i]) > 0 ? (it.rubric || []).map(x => ({ desc: String(x.desc || ''), points: Number(x.points) || 0 })) : [];
+      p.img = false; p.svg = ''; await DB.del(probImgKey(ex.id, i)); delete IMG[probImgKey(ex.id, i)];
+      const f = it.figure;
+      if (f && f.type === 'orig' && figs[i]){ await setImg(probImgKey(ex.id, i), figs[i]); p.img = true; }
+      else if (f && f.type === 'svg') p.svg = cleanSVG(String(f.svg || ''));
+      if (ae){ const a = String(it.answer ?? '').trim(); ex.answers[i] = /^(증명|작도)$/.test(a) ? '' : a.slice(0, 80); p.type = ['증명', '구하기', '작도'].includes(it.type) ? it.type : ''; }
+      else if (it.answer != null && /^\d+$/.test(String(it.answer)) && +it.answer <= 999) ex.answers[i] = String(+it.answer); else ex.answers[i] = '';
+      done++;
+    }
+    save();
+  }
+}
+async function bankAutoMake(o){
+  if (!BANK.index) throw new Error('먼저 문제은행을 불러와 주세요');
+  const ae = o.kind === '1'; o.allEssay = ae;
+  const group = String(o.bookId).slice(5), sel = (BANK.sel || []).slice();
+  let n = sel.length ? sel.length : o.n;
+  if (!ae && ![10, 20].includes(n)) throw new Error(sel.length ? `정답형은 10문제 또는 20문제를 골라 주세요(지금 ${n}문제 고름)` : '문항 수는 10 또는 20');
+  if (ae && !(n >= 1 && n <= 20)) throw new Error('전부 서술형은 1~20문제');
+  const ap = ae ? [0] : (o.ansPts.length ? o.ansPts : [5]);
+  const ansPts = Array.from({ length: n }, (_, i) => ae ? 0 : Number(ap[Math.min(i, ap.length - 1)]) || 0), essPts = Array(n).fill(0);
+  let essIdx = ae ? Array.from({ length: n }, (_, i) => i) : [...new Set(o.essQ.filter(q => q >= 1 && q <= n))].sort((a, b) => a - b).map(q => q - 1);
+  const modes = mixModes(o.mix, n);
+  const slots = ansPts.map((a, i) => ({ w: a + (essIdx.includes(i) ? 10 : 0) + i * 0.01, essay: essIdx.includes(i) }));
+  const picks = sel.length ? sel.slice() : bankPick(await bankCands(o), slots, o, modes);
+  if (!ae){   // 정답이 정수가 아닌 「동일 문항」은 서술형으로 돌림
+    picks.forEach((r, i) => { if (modes[i] === 'same' && bankIntAns(r) === null && !essIdx.includes(i)){ essIdx.push(i); ansPts[i] = 0; } }); essIdx.sort((a, b) => a - b); }
+  const autoEss = essIdx.length && !o.essP.length;
+  essIdx.forEach((i, k) => { essPts[i] = autoEss ? 10 : (Number(o.essP[k] ?? o.essP[o.essP.length - 1] ?? 0) || 0); });
+  if (autoEss){ const pts = splitEssay((o.total || 100) - sum(ansPts), essIdx.map((i, k) => ae ? (picks[i].난이도 || 3) + 0.01 * k : (picks[i].난이도 || 3) + 0.15 * k)); essIdx.forEach((i, k) => essPts[i] = pts[k]); }
+  const testType = TEST_TYPES.includes(o.testType) ? o.testType : '단원테스트', id = 'e' + Date.now();
+  const area = [o.units.length ? o.units.map(u => u.replace(/^\d+\s/, '')).join('·') : '', o.nos ? o.nos + '번' : ''].filter(Boolean).join(' ') || group;
+  const ex = fixExam({ id, name: o.title || `${o.course} ${testType}`, autoName: !o.title, testType, round: '', date: fmtDate(o.date), course: o.course, n, allEssay: ae,
+    answers: Array(n).fill(''), ansPts, essPts, probs: [], area: area.slice(0, 30), fromBank: picks.map(r => r.id), genAuto: { bookId: o.bookId, mix: o.mix, units: o.units, nos: o.nos || '', kind: ae ? '1' : '0' } });
+  S.exams.push(ex); S.current = id; save();
+  const direct = [], viaAI = [];
+  picks.forEach((r, i) => (modes[i] === 'same' && (ae || essPts[i] > 0 || bankIntAns(r) !== null) ? direct : viaAI).push(i));
+  if (viaAI.length && !aiReady()) throw new Error('숫자·형태를 바꾸려면 「설정」에 AI 키가 필요합니다(동일 문항 100%는 키 없이 됨)');
+  BUSY = '교재 문제 옮기는 중…'; render();
+  for (const i of direct) await bankCopyProb(ex, i, picks[i], modes[i]);
+  save();
+  if (viaAI.length){
+    await bankGen(ex, picks, modes, o.note, viaAI);
+    BUSY = 'AI가 바꾼 문제를 다시 풀어 검산하는 중…'; render();
+    const check = async only => { const ans = await aiVerify(ex); ans.forEach(a => { const i = (Number(a.no) || 0) - 1; if (only.includes(i)) ex.probs[i].verify = { answer: a.answer, ok: a.ok, note: a.note || '' }; }); save(); };
+    await check(viaAI);
+    const bad = viaAI.filter(i => verifyBad(ex, i));
+    if (bad.length){ await bankGen(ex, picks, modes, (o.note ? o.note + ' / ' : '') + '이전에 만든 문항의 답이 검산과 달랐습니다. 조건이 모순 없고 답이 하나로 정해지는지 특히 꼼꼼히 확인하세요.', bad);
+      BUSY = 'AI가 다시 만든 문항을 검산하는 중…'; render(); await check(bad); }
+  }
+  const when = fmtDate(o.date) || new Date().toISOString().slice(0, 10);
+  picks.forEach(r => bankUsed()[r.id] = ex.name ? `${when} ${ex.name}` : when);
+  BANK.sel = []; save(); return ex;
+}
+function bankAIRowsHTML(o){       // 「AI로 만들기」 화면의 문제은행 부분
+  const group = String(o.bookId).slice(5), units = bankUnitsOf(group), sel = o.units || [];
+  const uc = Object.keys(bankUsed()).filter(id => (BANK.list || []).some(r => r.id === id)).length;
+  return { units, unitsHTML: units.length > 1 ? `<div class="row" style="margin-top:8px;gap:4px 12px"><span class="mute" style="font-size:12px">단원</span>${units.map(u => `<label style="font-size:13px"><input type="checkbox" class="aUnit" value="${esc(u)}"${sel.includes(u) ? ' checked' : ''}> ${esc(u)}</label>`).join('')}</div>` : '' };
+}
+function bankPickPanelHTML(){
+  const shown = BANK.list.slice(0, (BANK.page + 1) * BANK_PAGE), selSet = new Set(BANK.sel.map(r => r.id));
+  return `<details id="bkPickBox" style="margin-top:12px"${S.settings.bankPickOpen ? ' open' : ''}><summary style="cursor:pointer"><b>문제 보며 직접 고르기</b> <span class="mute" style="font-size:12px">${BANK.sel.length ? `${BANK.sel.length}문제 고름 — 이 문제들로 만듦(문항 수 대신)` : '비워 두면 범위 안에서 난이도 고르게 자동으로 고름'}</span></summary>
+    <div class="row" style="margin:8px 0"><span class="mute">${BANK.busy ? '<span class="busy"></span> 찾는 중…' : `범위 안 ${BANK.list.length}문제`}</span>${BANK.sel.length ? '<button class="btn gray sm" id="bkClear">고른 문제 모두 빼기</button>' : ''}</div>
+    ${BANK.sel.map((r, i) => `<div class="bselr"><span class="num">${i + 1}</span><span class="mute">${esc(bankSrc(r))}</span><span style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(bankPlain(bankStatement(r)).slice(0, 60))}</span>
+      <button class="btn gray sm" data-bup="${i}"${i ? '' : ' disabled'}>▲</button><button class="btn gray sm" data-bdn="${i}"${i < BANK.sel.length - 1 ? '' : ' disabled'}>▼</button><button class="btn red sm" data-bdel="${i}">빼기</button></div>`).join('')}
+    <div id="bkList">${shown.map(r => bankCardHTML(r, selSet.has(r.id))).join('') || '<p class="mute">범위 안에 문제가 없습니다.</p>'}</div>
+    ${BANK.list.length > shown.length ? `<button class="btn gray" id="bkMore">더 보기 (${BANK.list.length - shown.length}문제 남음)</button>` : ''}</details>`;
+}
+async function bankRefreshAIList(o){ const k = ++BANK.seq; BANK.busy = true; try { const rs = await bankCands({ ...o, nos: o.nos }); if (k === BANK.seq){ BANK.list = rs; BANK.page = 0; } } finally { if (k === BANK.seq) BANK.busy = false; } }
+function bankAIHook(){   // AI 화면: 문제은행 교재를 고르면 범위 안 문제 목록을 새로 읽음
+  const box = document.getElementById('bkPickBox'); if (!box) return;
+  const o = S.settings.autoLast || {}, key = [o.bookId, (o.units || []).join('|'), o.nos || ''].join('#');
+  if (BANK.listKey !== key){ BANK.listKey = key; bankRefreshAIList(o).then(() => render()).catch(e => toast(e.message || String(e))); }
+  document.querySelectorAll('.aUnit').forEach(c => c.addEventListener('change', () => setTimeout(() => { const ol = S.settings.autoLast || {}; ol.units = [...document.querySelectorAll('.aUnit:checked')].map(x => x.value); save(); render(); }, 0)));
+  const nos = document.getElementById('aNos'); if (nos) nos.addEventListener('change', () => setTimeout(render, 0));
+}
+function bankLoadButtonsHTML(){
+  return `<span class="row" style="gap:6px">${CLOUD_MODE ? `<button class="btn gray sm" id="bkDrive"${BUSY ? ' disabled' : ''}>문제은행 불러오기(구글드라이브)</button>` : ''}<label class="btn gray sm" style="display:inline-block">${CLOUD_MODE ? '컴퓨터 폴더' : '문제은행 폴더 불러오기'}<input type="file" id="bkDir" webkitdirectory multiple hidden></label></span>`;
 }
 
 let TAB = 'auto';
