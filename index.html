@@ -1680,7 +1680,7 @@ function bindAuto(){
       b.usedNos = map; b.used = Object.fromEntries(Object.entries(b.used || {}).filter(([k]) => map[normNo(k.split(':').slice(1).join(':'))] !== undefined));
       save(); closeModal(); render(); toastSoft(`이미 낸 문제 ${Object.keys(map).length}개를 저장했습니다`); }; });
   document.querySelectorAll('[name=aMode]').forEach(r => r.onchange = () => { S.settings.autoMode = r.value; save(); render(); });
-  if (document.getElementById('bkDir') || document.getElementById('bkBook')){
+  if (document.getElementById('bkDir') || document.getElementById('bkBook') || document.getElementById('bkDrive')){
     document.querySelectorAll('[name=aKind]').forEach(r => r.onchange = () => { S.settings.autoLast = { ...(S.settings.autoLast || {}), kind: r.value }; save(); render(); });
     bindBank(); }
   if ($('uDrop')){
@@ -1739,6 +1739,66 @@ function bindAuto(){
 // ------------------------------------------------------------ 문제은행 폴더에서 골라 시험지 만들기
 // 「과사람/문제은행」 폴더(index.json + 교재별 단원 JSON + img/)를 그대로 읽음. 폴더는 이 화면에서만 쓰고, 시험을 만들 때 고른 문제의 글·그림을 시험 안에 복사해 둠.
 const BANK = { files: null, byName: {}, root: '', index: null, cache: {}, list: [], sel: [], f: { book: '', group: '', units: [], q: '', lv: '', form: '', intOnly: false, skipUsed: true }, page: 0, err: '', seq: 0, busy: false };
+
+// ---- 구글드라이브에서 직접 읽기(사이트 판: 로그인한 Google 계정으로 drive.readonly) ----
+const BANK_DRIVE_ID = '1A52MYFWCg2Mn8tji6D9FXvqkfp8gki-V';   // 「과사람/문제은행」
+const DRIVE = { tok: '', exp: 0, kids: {}, urls: {} };
+try { const t = JSON.parse(sessionStorage.getItem('kmo-drive-tok') || 'null'); if (t && t.exp > Date.now()) Object.assign(DRIVE, t); } catch(e){}
+async function driveToken(force){
+  if (!force && DRIVE.tok && Date.now() < DRIVE.exp) return DRIVE.tok;
+  if (!(window.firebase && firebase.auth)) throw new Error('구글드라이브에서 읽기는 사이트 판(로그인 후)에서만 됩니다');
+  const pv = new firebase.auth.GoogleAuthProvider(); pv.addScope('https://www.googleapis.com/auth/drive.readonly');
+  const u = firebase.auth().currentUser; if (u && u.email) pv.setCustomParameters({ login_hint: u.email });
+  const r = u ? await u.reauthenticateWithPopup(pv) : await firebase.auth().signInWithPopup(pv);
+  const t = r && r.credential && r.credential.accessToken; if (!t) throw new Error('구글드라이브 읽기 허락을 받지 못했습니다');
+  DRIVE.tok = t; DRIVE.exp = Date.now() + 50 * 60e3; try { sessionStorage.setItem('kmo-drive-tok', JSON.stringify({ tok: DRIVE.tok, exp: DRIVE.exp })); } catch(e){}
+  return t;
+}
+async function driveGet(url, asBlob){
+  for (let k = 0; k < 2; k++){
+    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + await driveToken(k > 0) } });
+    if (res.status === 401 && k === 0){ DRIVE.exp = 0; continue; }
+    if (!res.ok){ const t = await res.text().catch(() => ''); if (/accessNotConfigured|has not been used|SERVICE_DISABLED/.test(t)) throw new Error('Google Cloud 콘솔에서 이 프로젝트의 「Google Drive API」를 사용 설정해 주세요.'); throw new Error('구글드라이브 읽기 오류 (' + res.status + ')'); }
+    return asBlob ? res.blob() : res.json();
+  }
+}
+async function driveKids(id){
+  if (DRIVE.kids[id]) return DRIVE.kids[id];
+  const out = {}; let page = '';
+  do { const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
+    const j = await driveGet(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,mimeType)&pageSize=1000${page ? '&pageToken=' + page : ''}`);
+    (j.files || []).forEach(f => out[String(f.name).normalize('NFC')] = f.id); page = j.nextPageToken || ''; } while (page);
+  return DRIVE.kids[id] = out;
+}
+async function driveResolve(rel){ let id = BANK.driveRoot; for (const part of String(rel).normalize('NFC').split('/').filter(Boolean)){ const k = await driveKids(id); id = k[part]; if (!id) return null; } return id; }
+async function bankText(rel){
+  if (BANK.src === 'drive'){ const id = await driveResolve(rel); if (!id) return null; const b = await driveGet(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, true); return b.text(); }
+  const f = BANK.files.get(String(rel).normalize('NFC')); return f ? f.text() : null;
+}
+async function bankImgURL(r, name){       // 그림 → object URL (없으면 null)
+  const p = (r.그림파일 || []).find(x => x.endsWith('/' + name) || x === name);
+  if (BANK.src === 'drive'){
+    const rel = p || ''; if (!rel) return null; if (DRIVE.urls[rel]) return DRIVE.urls[rel];
+    const id = await driveResolve(rel); if (!id) return null;
+    const b = await driveGet(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, true); return DRIVE.urls[rel] = URL.createObjectURL(b);
+  }
+  const f = (p && BANK.files.get(p.normalize('NFC'))) || BANK.byName[name]; return f ? URL.createObjectURL(f) : null;
+}
+async function bankLoadDrive(){
+  await driveToken();
+  BANK.driveRoot = BANK_DRIVE_ID; DRIVE.kids = {};
+  let k = null; try { k = await driveKids(BANK_DRIVE_ID); } catch(e){ if (/콘솔/.test(e.message)) throw e; }
+  if (!k || !k['index.json']){   // 폴더 id 가 바뀌었으면 이름으로 찾기
+    const q = encodeURIComponent(`name='문제은행' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+    const j = await driveGet(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&pageSize=50`);
+    for (const f of j.files || []){ const kk = await driveKids(f.id); if (kk['index.json']){ BANK.driveRoot = f.id; break; } }
+  }
+  const prevSrc = BANK.src; BANK.src = 'drive';
+  let t = null; try { t = await bankText('index.json'); } catch(e){ BANK.src = prevSrc; throw e; }
+  if (!t) BANK.src = prevSrc; if (!t) throw new Error('구글드라이브에서 「문제은행/index.json」을 찾지 못했습니다');
+  BANK.src = 'drive'; BANK.files = new Map(); BANK.byName = {}; BANK.index = JSON.parse(t); BANK.cache = {}; BANK.list = []; BANK.page = 0;
+  const books = bankBooks(); if (!books.includes(BANK.f.book)){ BANK.f.book = books.includes('KMO') ? 'KMO' : books[0]; BANK.f.group = ''; BANK.f.units = []; }
+}
 function bankGroupOf(x){ return x.교재 === '쎈' || x.교재 === '에이급' ? `${x.교재} ${x.학년}-${x.학기}` : `${x.교재}${x.과목 && !String(x.교재).includes(x.과목) ? ' ' + x.과목 : ''}`; }
 async function bankLoadFolder(fileList){
   const files = [...fileList]; if (!files.length) return;
@@ -1749,7 +1809,7 @@ async function bankLoadFolder(fileList){
   for (const f of files){ const p = f.webkitRelativePath || f.name; if (!p.startsWith(root)) continue; const rel = p.slice(root.length); map.set(rel.normalize('NFC'), f);
     if (/\.png$|\.jpe?g$/i.test(rel)) byName[rel.split('/').pop().normalize('NFC')] = f; }
   const index = JSON.parse(await idx.text());
-  BANK.files = map; BANK.byName = byName; BANK.root = root; BANK.index = index; BANK.cache = {}; BANK.list = []; BANK.page = 0;
+  BANK.src = 'local'; BANK.files = map; BANK.byName = byName; BANK.root = root; BANK.index = index; BANK.cache = {}; BANK.list = []; BANK.page = 0;
   const books = bankBooks();
   if (!books.includes(BANK.f.book)) { BANK.f.book = books.includes('KMO') ? 'KMO' : books[0]; BANK.f.group = ''; BANK.f.units = []; }
 }
@@ -1759,7 +1819,7 @@ function bankGroups(){ return [...new Set(bankEntries().map(bankGroupOf))]; }
 async function bankLoadEntries(entries){
   const out = [];
   for (const e of entries){
-    if (!BANK.cache[e.파일]){ const f = BANK.files.get(String(e.파일).normalize('NFC')); if (!f) continue; try { BANK.cache[e.파일] = JSON.parse(await f.text()); } catch(err){ BANK.cache[e.파일] = []; } }
+    if (!BANK.cache[e.파일]){ let t = null; try { t = await bankText(e.파일); } catch(err){ if (/콘솔|허락/.test(err.message)) throw err; } if (t === null) continue; try { BANK.cache[e.파일] = JSON.parse(t); } catch(err){ BANK.cache[e.파일] = []; } }
     for (const r of BANK.cache[e.파일]) out.push(r);
   }
   return out;
@@ -1806,9 +1866,10 @@ function bankCardHTML(r, picked){
 }
 function viewBank(head, common){
   if (!BANK.index) return `<div class="card">${head}
-    <label class="drop" style="padding:38px">
+    ${CLOUD_MODE ? `<div class="row" style="margin-bottom:10px"><button class="btn big" id="bkDrive"${BUSY ? ' disabled' : ''}>구글드라이브 「과사람/문제은행」에서 불러오기</button><span class="mute">폰에서도 됩니다 · 처음 한 번 드라이브 읽기 허락을 묻습니다</span></div>` : ''}
+    <label class="drop" style="padding:${CLOUD_MODE ? 18 : 38}px">
       <input type="file" id="bkDir" webkitdirectory multiple hidden>
-      <div style="font-size:16px;font-weight:700">「문제은행」 폴더 고르기</div>
+      <div style="font-size:16px;font-weight:700">${CLOUD_MODE ? '또는 이 컴퓨터의 ' : ''}「문제은행」 폴더 고르기</div>
       <div class="mute">구글드라이브 「과사람/문제은행」 폴더를 고르세요 (index.json 이 들어 있는 폴더). 폴더는 고칠 수 없고 읽기만 합니다.</div></label>
     ${BANK.err ? `<p style="color:var(--red)">${esc(BANK.err)}</p>` : ''}${busyLine()}</div>`;
   const f = BANK.f, o = S.settings.autoLast || {}, ae = o.kind === '1';
@@ -1818,7 +1879,7 @@ function viewBank(head, common){
   const nOk = ae ? BANK.sel.length >= 1 && BANK.sel.length <= 20 : [10, 20].includes(BANK.sel.length);
   const nonInt = BANK.sel.filter(r => bankIntAns(r) === null).length;
   return `<div class="card">${head}
-  <div class="row"><span class="mute" style="font-size:12px">문제은행: ${Object.entries(cnt).map(([k, v]) => `${esc(k)} ${v}`).join(' · ')}</span><label class="btn gray sm" style="display:inline-block">다른 폴더<input type="file" id="bkDir" webkitdirectory multiple hidden></label></div>
+  <div class="row"><span class="mute" style="font-size:12px">문제은행: ${Object.entries(cnt).map(([k, v]) => `${esc(k)} ${v}`).join(' · ')}</span><span class="mute" style="font-size:12px">${BANK.src === 'drive' ? '(구글드라이브)' : '(이 컴퓨터 폴더)'}</span>${CLOUD_MODE ? '<button class="btn gray sm" id="bkDrive">드라이브에서 다시 불러오기</button>' : ''}<label class="btn gray sm" style="display:inline-block">컴퓨터 폴더<input type="file" id="bkDir" webkitdirectory multiple hidden></label></div>
   <div class="row" style="margin-top:10px"><label>교재 <select id="bkBook">${bankBooks().map(b => `<option${b === f.book ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>
     <label>과정 <select id="bkGroup"><option value="">전체</option>${groups.map(g => `<option${g === f.group ? ' selected' : ''}>${esc(g)}</option>`).join('')}</select></label>
     <label>난이도 <select id="bkLv"><option value="">전체</option>${[1, 2, 3, 4, 5].map(k => `<option${String(k) === f.lv ? ' selected' : ''}>${k}</option>`).join('')}</select></label>
@@ -1844,8 +1905,8 @@ async function bankPaintFigs(){
   for (const el of document.querySelectorAll('[data-bfig]')){
     if (el.dataset.done) continue; el.dataset.done = '1';
     const r = BANK.list.find(x => x.id === el.dataset.bfig) || BANK.sel.find(x => x.id === el.dataset.bfig); if (!r) continue;
-    for (const nm of bankFigNames(r)){ const f = bankFigFile(r, nm); if (!f) { el.insertAdjacentHTML('beforeend', `<span class="pill p-bad">그림 파일 없음: ${esc(nm)}</span>`); continue; }
-      const img = document.createElement('img'); img.src = URL.createObjectURL(f); img.style.cssText = 'max-width:260px;max-height:200px;margin:4px 8px 0 0'; el.appendChild(img); }
+    for (const nm of bankFigNames(r)){ let u = null; try { u = await bankImgURL(r, nm); } catch(e){} if (!u) { el.insertAdjacentHTML('beforeend', `<span class="pill p-bad">그림 파일 없음: ${esc(nm)}</span>`); continue; }
+      const img = document.createElement('img'); img.src = u; img.style.cssText = 'max-width:260px;max-height:200px;margin:4px 8px 0 0'; el.appendChild(img); }
   }
 }
 function bankPickRandom(n){
@@ -1859,8 +1920,8 @@ function bankPickRandom(n){
 }
 async function bankFigureDataURL(r){       // 문제 그림 여러 장을 위아래로 이어 한 장(PNG)으로
   const imgs = [];
-  for (const nm of bankFigNames(r)){ const f = bankFigFile(r, nm); if (!f) continue;
-    const url = URL.createObjectURL(f); const im = new Image(); await new Promise((ok, no) => { im.onload = ok; im.onerror = no; im.src = url; }).catch(() => null); if (im.naturalWidth) imgs.push(im); }
+  for (const nm of bankFigNames(r)){ const url = await bankImgURL(r, nm); if (!url) continue;
+    const im = new Image(); await new Promise((ok, no) => { im.onload = ok; im.onerror = no; im.src = url; }).catch(() => null); if (im.naturalWidth) imgs.push(im); }
   if (!imgs.length) return null;
   const gap = 16, W = Math.min(1400, Math.max(...imgs.map(i => i.naturalWidth))), sc = imgs.map(i => Math.min(1, W / i.naturalWidth));
   const H = imgs.reduce((h, im, k) => h + Math.round(im.naturalHeight * sc[k]) + (k ? gap : 0), 0);
@@ -1898,9 +1959,10 @@ async function bankMakeExam(o){
   BANK.sel = []; save(); return ex;
 }
 function bindBank(){
-  const $ = id => document.getElementById(id); if (!$('bkDir') && !$('bkBook')) return;
+  const $ = id => document.getElementById(id); if (!$('bkDir') && !$('bkBook') && !$('bkDrive')) return;
   const rer = () => { render(); };
   if ($('bkDir')) $('bkDir').onchange = e => runBusy('문제은행 읽는 중…', async () => { BANK.err = ''; try { await bankLoadFolder(e.target.files); await bankFilter(); } catch(err){ BANK.err = err.message || String(err); } });
+  if ($('bkDrive')) $('bkDrive').onclick = () => runBusy('구글드라이브에서 문제은행 읽는 중…', async () => { BANK.err = ''; try { await bankLoadDrive(); await bankFilter(); } catch(err){ BANK.err = err.message || String(err); if (BANK.src !== 'drive') BANK.index = null; toast(BANK.err); } });
   if (!$('bkBook')) return;
   const refilter = () => { const k = ++BANK.seq; BANK.busy = true; render(); bankFilter().then(() => { if (k === BANK.seq){ BANK.busy = false; render(); } }).catch(e => { BANK.busy = false; toast(e.message || String(e)); render(); }); };
   $('bkBook').onchange = e => { BANK.f.book = e.target.value; BANK.f.group = ''; BANK.f.units = []; refilter(); };
