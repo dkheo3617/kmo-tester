@@ -401,7 +401,26 @@ async function callAI(content, { max = 16000, system = '' } = {}){
 function parseJSON(text){
   const a = text.indexOf('{'), b = text.lastIndexOf('}');
   if (a < 0 || b < a) throw new Error('AI 답에서 JSON을 찾지 못했습니다');
-  return JSON.parse(text.slice(a, b + 1));
+  return JSON.parse(fixJSONEscapes(text.slice(a, b + 1)));
+}
+function fixJSONEscapes(t){   // AI가 LaTeX 역슬래시(\frac, \overline …)를 그대로 쓴 JSON 바로잡기
+  let out = '', inStr = false;
+  for (let i = 0; i < t.length; i++){
+    const c = t[i];
+    if (!inStr){ if (c === '"') inStr = true; out += c; continue; }
+    if (c === '"'){ inStr = false; out += c; continue; }
+    if (c === '\\'){
+      const d = t[i + 1] || '';
+      if (d === '\\' || d === '"' || d === '/'){ out += c + d; i++; continue; }
+      if (d === 'u' && /^[0-9a-fA-F]{4}$/.test(t.slice(i + 2, i + 6))){ out += c; continue; }
+      if ('bfnrt'.includes(d) && !/[a-zA-Z]/.test(t[i + 2] || '')){ out += c + d; i++; continue; }
+      out += '\\\\'; continue;      // LaTeX 명령: 글자 그대로의 역슬래시로
+    }
+    if (c === '\n' || c === '\r'){ out += c === '\n' ? '\\n' : ''; continue; }   // 문자열 안 날 줄바꿈
+    if (c === '\t'){ out += '\\t'; continue; }
+    out += c;
+  }
+  return out;
 }
 const imgPart = dataURL => ({ type: 'image', source: { type: 'base64', media_type: dataURL.slice(5, dataURL.indexOf(';')), data: dataURL.slice(dataURL.indexOf(',') + 1) } });
 const SYS = '당신은 한국수학올림피아드(KMO)·영재학교(영재고) 입시 대비 학원의 수학 선생님입니다. 한국어로 쓰고, 수식은 LaTeX를 $...$ 로 감쌉니다. 요청한 JSON 하나만 출력하고 다른 말은 쓰지 않습니다.';
