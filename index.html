@@ -101,6 +101,13 @@ td.es .eb{border:0;background:transparent;color:var(--navy);cursor:pointer;font-
 .thumbs{display:flex;gap:8px;flex-wrap:wrap}
 .thumbs img{height:90px;border:1px solid var(--line);border-radius:6px;background:#fff}
 @media (max-width:820px){ .grid20{grid-template-columns:repeat(5,minmax(0,1fr))} nav{margin-left:0} .prob .two{grid-template-columns:1fr} }
+.bq{border:1px solid var(--line,#dde3ea);border-radius:10px;padding:10px 12px;margin:8px 0;background:var(--card,#fff)}
+.bq.on{border-color:var(--navy,#1f3a68);box-shadow:0 0 0 2px var(--navy-soft,#e3e9f4)}
+.bqh{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;margin-bottom:6px}
+.bqs{line-height:1.7;margin:4px 0}
+.bsel{border:1px dashed var(--navy,#1f3a68);border-radius:10px;padding:10px 12px;margin:12px 0}
+.bselr{display:flex;gap:8px;align-items:center;font-size:13px;padding:3px 0;border-bottom:1px solid var(--line,#eef1f5)}
+.bselr .num{font-weight:700;min-width:22px}
 </style>
 </head>
 <body>
@@ -326,7 +333,7 @@ function dialog(msg, okLabel, cancelLabel){
 const askConfirm = (msg, ok = '확인') => dialog(msg, ok, '취소');
 function toast(m){ dialog(String(m), '확인'); }
 const AE = ex => !!(ex && ex.allEssay);      // 전부 서술형(정답 점수 없음, 시험지에 풀이 → 시험지 스캔으로 채점)
-const pointLabel = (ex, i) => AE(ex) ? `[${ex.essPts[i]}점]` : Number(ex.essPts[i]) > 0 ? `[${ex.ansPts[i]}점 + 서술 ${ex.essPts[i]}점]` : `[${ex.ansPts[i]}점]`;
+const pointLabel = (ex, i) => AE(ex) ? `[${ex.essPts[i]}점]` : Number(ex.essPts[i]) > 0 ? (Number(ex.ansPts[i]) ? `[${ex.ansPts[i]}점 + 서술 ${ex.essPts[i]}점]` : `[서술 ${ex.essPts[i]}점]`) : `[${ex.ansPts[i]}점]`;
 
 // ------------------------------------------------------------ 수식·그림 표시
 function mathHTML(text){
@@ -840,7 +847,7 @@ function essayPage(ex, pi, qs, pages){
     box(b.x, b.y, b.w, b.h, 'border:0.35mm solid #222;border-radius:1mm;');
     box(b.x, b.y, 34, 7, `background:${navy};border-radius:1mm 0 1mm 0;`);
     text(b.x, b.y, 34, `${qi+1}번 서술형`, 3.4, 'color:#fff;font-weight:800;text-align:center;', 7);
-    text(b.x + 37, b.y + 1.6, 100, `서술 ${ex.essPts[qi]}점 · 최종 답은 OMR 답안지에도 마킹`, 2.8, 'color:#666;'); });
+    text(b.x + 37, b.y + 1.6, 100, `서술 ${ex.essPts[qi]}점${Number(ex.ansPts[qi]) ? ' · 최종 답은 OMR 답안지에도 마킹' : ''}`, 2.8, 'color:#666;'); });
   const bits = [1, pi & 1, (pi >> 1) & 1, (pi >> 2) & 1, (pi >> 3) & 1];
   CODE.slice(0, 5).forEach(([x, y], k) => box(x, y, 4, 4, bits[k] ? 'background:#000;' : 'border:0.2mm solid #ccc;'));
   text(60, 286.5, 120, `${esc(ex.course)}  |  ${esc(ex.name)} 서술형 풀이 ${pi}/${pages}`, 2.6, 'color:#888;text-align:center;');
@@ -1604,15 +1611,16 @@ function viewAuto(){
   const common = `<label>반 <select id="aCourse">${classesList().map(c => `<option${(o.course || classesList()[0]) === c ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
     <label>유형 <select id="aType">${TEST_TYPES.map(t => `<option${(o.testType || '단원테스트') === t ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
     <label>날짜 <input type="date" id="aDate" value="${esc(o.date || today)}"></label>`;
-  const head = `<div class="row" style="justify-content:space-between;margin-bottom:14px">${seg('aMode', mode, [['ai', 'AI로 만들기'], ['up', '만든 시험지 올리기']])}
+  const head = `<div class="row" style="justify-content:space-between;margin-bottom:14px">${seg('aMode', mode, [['ai', 'AI로 만들기'], ['bank', '문제은행에서 고르기'], ['up', '만든 시험지 올리기']])}
     ${seg('aKind', ae ? '1' : '0', [['0', '정답형 + 서술형'], ['1', '전부 서술형']])}</div>`;
-  if (mode === 'up') return `<div class="card"><div class="row" style="margin-bottom:14px">${seg('aMode', mode, [['ai', 'AI로 만들기'], ['up', '만든 시험지 올리기']])}</div>
+  if (mode === 'up') return `<div class="card"><div class="row" style="margin-bottom:14px">${seg('aMode', mode, [['ai', 'AI로 만들기'], ['bank', '문제은행에서 고르기'], ['up', '만든 시험지 올리기']])}</div>
     <label class="drop" id="uDrop" style="padding:38px"><input type="file" id="uFiles" multiple accept="application/pdf,.hwp,.hwpx" hidden>
       <div style="font-size:16px;font-weight:700">시험지·해설 PDF나 폴더를 여기에 끌어다 놓으세요</div>
       <div class="mute">파일 이름의 [시험지]·[해설]·날짜([261026])로 짝을 맞추고, 반·유형·형식도 알아서 정합니다</div></label>
     <div class="row" style="margin-top:8px"><label class="btn gray sm" style="display:inline-block">폴더 고르기<input type="file" id="uDir" webkitdirectory multiple hidden></label>
       <span class="mute" style="font-size:12px">이름에서 못 알아내면:</span>${common.replace('id="aDate"', 'id="aDate" style="display:none"').replace('<label>날짜 ', '<label style="display:none">')}</div>
     <div id="uPlan">${UPLAN.length ? planHTML() : ''}</div>${busyLine()}</div>`;
+  if (mode === 'bank') return viewBank(head, common);
   if (!S.books.length) return `<div class="card">${head}<p>AI로 만들려면 먼저 「교재」 탭에서 교재 PDF를 올려 주세요.</p></div>`;
   const b = S.books.find(x => x.id === o.bookId) || S.books[0];
   const units = b ? bookUnits(b) : [], selU = (o.bookId === (b && b.id) ? o.units : null) || [];
@@ -1672,6 +1680,9 @@ function bindAuto(){
       b.usedNos = map; b.used = Object.fromEntries(Object.entries(b.used || {}).filter(([k]) => map[normNo(k.split(':').slice(1).join(':'))] !== undefined));
       save(); closeModal(); render(); toastSoft(`이미 낸 문제 ${Object.keys(map).length}개를 저장했습니다`); }; });
   document.querySelectorAll('[name=aMode]').forEach(r => r.onchange = () => { S.settings.autoMode = r.value; save(); render(); });
+  if (document.getElementById('bkDir') || document.getElementById('bkBook')){
+    document.querySelectorAll('[name=aKind]').forEach(r => r.onchange = () => { S.settings.autoLast = { ...(S.settings.autoLast || {}), kind: r.value }; save(); render(); });
+    bindBank(); }
   if ($('uDrop')){
     $('aCourse').onchange = $('aType').onchange = () => { S.settings.autoLast = { ...(S.settings.autoLast || {}), course: $('aCourse').value, testType: $('aType').value }; save(); };
     const take = async list => { S.settings.autoLast = { ...(S.settings.autoLast || {}), course: $('aCourse').value, testType: $('aType').value }; save(); BUSY = '파일 살펴보는 중…'; render();
@@ -1725,6 +1736,198 @@ function bindAuto(){
 }
 
 // ------------------------------------------------------------ 화면
+// ------------------------------------------------------------ 문제은행 폴더에서 골라 시험지 만들기
+// 「과사람/문제은행」 폴더(index.json + 교재별 단원 JSON + img/)를 그대로 읽음. 폴더는 이 화면에서만 쓰고, 시험을 만들 때 고른 문제의 글·그림을 시험 안에 복사해 둠.
+const BANK = { files: null, byName: {}, root: '', index: null, cache: {}, list: [], sel: [], f: { book: '', group: '', units: [], q: '', lv: '', form: '', intOnly: false, skipUsed: true }, page: 0, err: '', seq: 0, busy: false };
+function bankGroupOf(x){ return x.교재 === '쎈' || x.교재 === '에이급' ? `${x.교재} ${x.학년}-${x.학기}` : `${x.교재}${x.과목 && !String(x.교재).includes(x.과목) ? ' ' + x.과목 : ''}`; }
+async function bankLoadFolder(fileList){
+  const files = [...fileList]; if (!files.length) return;
+  const idx = files.find(f => /(^|\/)index\.json$/.test(f.webkitRelativePath || f.name) && (f.webkitRelativePath || '').split('/').length <= 2) || files.find(f => /(^|\/)index\.json$/.test(f.webkitRelativePath || f.name));
+  if (!idx) throw new Error('index.json 이 없습니다. 「과사람/문제은행」 폴더를 골라 주세요.');
+  const rp = idx.webkitRelativePath || idx.name, root = rp.slice(0, rp.length - 'index.json'.length);
+  const map = new Map(), byName = {};
+  for (const f of files){ const p = f.webkitRelativePath || f.name; if (!p.startsWith(root)) continue; const rel = p.slice(root.length); map.set(rel.normalize('NFC'), f);
+    if (/\.png$|\.jpe?g$/i.test(rel)) byName[rel.split('/').pop().normalize('NFC')] = f; }
+  const index = JSON.parse(await idx.text());
+  BANK.files = map; BANK.byName = byName; BANK.root = root; BANK.index = index; BANK.cache = {}; BANK.list = []; BANK.page = 0;
+  const books = bankBooks();
+  if (!books.includes(BANK.f.book)) { BANK.f.book = books.includes('KMO') ? 'KMO' : books[0]; BANK.f.group = ''; BANK.f.units = []; }
+}
+function bankBooks(){ return BANK.index ? [...new Set(BANK.index.파일.map(x => /KMO/.test(x.교재) ? 'KMO' : x.교재))] : []; }
+function bankEntries(){ return BANK.index ? BANK.index.파일.filter(x => (/KMO/.test(x.교재) ? 'KMO' : x.교재) === BANK.f.book) : []; }
+function bankGroups(){ return [...new Set(bankEntries().map(bankGroupOf))]; }
+async function bankLoadEntries(entries){
+  const out = [];
+  for (const e of entries){
+    if (!BANK.cache[e.파일]){ const f = BANK.files.get(String(e.파일).normalize('NFC')); if (!f) continue; try { BANK.cache[e.파일] = JSON.parse(await f.text()); } catch(err){ BANK.cache[e.파일] = []; } }
+    for (const r of BANK.cache[e.파일]) out.push(r);
+  }
+  return out;
+}
+function bankUnitName(r){ const o = r.출처 || {}; return (o.단원번호 ? String(o.단원번호).padStart(2, '0') + ' ' : '') + (o.단원명 || ''); }
+function bankAnswer(r){ return String(r.정답 || '').replace(/\$/g, '').trim(); }
+function bankIntAns(r){ const c = '①②③④⑤⑥⑦⑧⑨'.indexOf(bankAnswer(r)); if (c >= 0 && bankAnswer(r).length === 1 && (r.선택지 || []).length) return String(c + 1); const a = bankAnswer(r).replace(/^\{(.*)\}$/, '$1').replace(/\\[,;! ]/g, '').trim(); return /^\d{1,3}$/.test(a) ? String(+a) : null; }
+function bankTableText(json){ try { const t = JSON.parse(json); return '\n' + (t.grid || []).map(row => row.map(c => String(c || '').replace(/<br>/g, ' ')).join('  │  ')).join('\n') + '\n'; } catch(e){ return ''; } }
+function bankClean(s){
+  return String(s || '').replace(/\[\[표:(\{[\s\S]*?\})\]\]/g, (m, j) => bankTableText(j)).replace(/\[\[img:[^\]]+\]\]/g, '').replace(/\[\[보기\]\]/g, '〈보기〉').replace(/\[\[\/보기\]\]/g, '')
+    .replace(/\[\[(도형|풀이칸|그림:\d+)\]\]/g, '').replace(/<br\s*\/?>/g, '\n').replace(/\*\*(.+?)\*\*/g, '$1').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+function bankPlain(t){ let s = String(t || ''); for (let k = 0; k < 4; k++) s = s.replace(/\\(?:mathrm|overline|text|mathbf|left|right)\s*\{([^{}]*)\}/g, '$1');
+  return s.replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '$1/$2').replace(/\\(triangle)/g, '△').replace(/\\(angle)/g, '∠').replace(/\\[a-zA-Z]+/g, ' ').replace(/[{}$]|\\[,;!]/g, '').replace(/\s+/g, ' ').trim(); }
+function bankStatement(r){
+  let s = (r.지시문 ? bankClean(r.지시문) + '\n' : '') + bankClean(r.본문);
+  if ((r.선택지 || []).length) s += '\n' + r.선택지.map((c, i) => '①②③④⑤⑥⑦⑧'[i] + ' ' + bankClean(c)).join('   ');
+  if ((r.소문항 || []).length) s += '\n' + r.소문항.map((c, i) => `(${i + 1}) ` + bankClean(c)).join('\n');
+  return s.trim();
+}
+function bankFigNames(r){ const t = [r.지시문, r.본문, ...(r.선택지 || []), ...(r.소문항 || [])].join(' '); return [...new Set([...t.matchAll(/\[\[img:([^\]]+)\]\]/g)].map(m => m[1].normalize('NFC')))]; }
+function bankFigFile(r, name){ const p = (r.그림파일 || []).find(x => x.endsWith('/' + name) || x === name); return (p && BANK.files.get(p.normalize('NFC'))) || BANK.byName[name] || null; }
+function bankNeedsDrawing(r){ return /\[\[도형\]\]/.test([r.지시문, r.본문, ...(r.선택지 || [])].join(' ')) || ((r.그림데이터 || []).length > 0); }
+function bankUsed(){ return S.bankUsed || (S.bankUsed = {}); }
+async function bankFilter(){
+  const f = BANK.f, ents = bankEntries().filter(e => !f.group || bankGroupOf(e) === f.group);
+  let rs = await bankLoadEntries(ents);
+  if (f.units.length) rs = rs.filter(r => f.units.includes(bankUnitName(r)));
+  if (f.lv) rs = rs.filter(r => String(r.난이도) === f.lv);
+  if (f.form) rs = rs.filter(r => f.form === '증명' ? bankAnswer(r) === '(증명)' : (r.형식 || '').startsWith(f.form));
+  if (f.intOnly) rs = rs.filter(r => bankIntAns(r) !== null);
+  if (f.skipUsed) rs = rs.filter(r => !bankUsed()[r.id]);
+  if (f.q){ const q = f.q.trim(); rs = rs.filter(r => (r.id + ' ' + bankStatement(r).replace(/\$[^$]*\$/g, ' ') + ' ' + (r.유형 || '')).includes(q)); }
+  BANK.list = rs; BANK.page = 0;
+}
+const BANK_PAGE = 40;
+function bankCardHTML(r, picked){
+  const o = r.출처 || {}, a = bankAnswer(r), fig = bankFigNames(r).length, draw = bankNeedsDrawing(r);
+  return `<div class="bq${picked ? ' on' : ''}" data-bq="${esc(r.id)}"><div class="bqh"><label><input type="checkbox" data-bpick="${esc(r.id)}"${picked ? ' checked' : ''}> <b>${esc(o.번호 ?? '')}</b></label>
+    <span class="mute">${esc(o.교재 || '')} · ${esc(bankUnitName(r))}${r.유형 && r.유형 !== o.단원명 ? ' · ' + esc(r.유형) : ''} · 난이도 ${esc(r.난이도 ?? '-')} · ${esc(r.형식 || '')}${fig ? ` · 그림 ${fig}` : ''}</span>
+    ${draw ? '<span class="pill p-bad">도형 그림 빠짐</span>' : ''}${bankUsed()[r.id] ? `<span class="pill">낸 문제: ${esc(bankUsed()[r.id])}</span>` : ''}<span class="mute" style="margin-left:auto;font-size:11px">${esc(r.id)}</span></div>
+    <div class="bqs">${mathHTML(bankStatement(r))}</div><div class="bqf" data-bfig="${esc(r.id)}"></div>
+    <div class="mute" style="font-size:12px">정답: ${a ? mathHTML('$' + a.replace(/\$/g, '') + '$') : '-'}</div></div>`;
+}
+function viewBank(head, common){
+  if (!BANK.index) return `<div class="card">${head}
+    <label class="drop" style="padding:38px">
+      <input type="file" id="bkDir" webkitdirectory multiple hidden>
+      <div style="font-size:16px;font-weight:700">「문제은행」 폴더 고르기</div>
+      <div class="mute">구글드라이브 「과사람/문제은행」 폴더를 고르세요 (index.json 이 들어 있는 폴더). 폴더는 고칠 수 없고 읽기만 합니다.</div></label>
+    ${BANK.err ? `<p style="color:var(--red)">${esc(BANK.err)}</p>` : ''}${busyLine()}</div>`;
+  const f = BANK.f, o = S.settings.autoLast || {}, ae = o.kind === '1';
+  const groups = bankGroups(), units = [...new Set((f.group ? bankEntries().filter(e => bankGroupOf(e) === f.group) : []).map(e => (e.단원번호 ? String(e.단원번호).padStart(2, '0') + ' ' : '') + (e.단원명 || '')))].filter(u => u.trim());
+  const cnt = BANK.index.문항수 || {};
+  const shown = BANK.list.slice(0, (BANK.page + 1) * BANK_PAGE), selSet = new Set(BANK.sel.map(r => r.id));
+  const nOk = ae ? BANK.sel.length >= 1 && BANK.sel.length <= 20 : [10, 20].includes(BANK.sel.length);
+  const nonInt = BANK.sel.filter(r => bankIntAns(r) === null).length;
+  return `<div class="card">${head}
+  <div class="row"><span class="mute" style="font-size:12px">문제은행: ${Object.entries(cnt).map(([k, v]) => `${esc(k)} ${v}`).join(' · ')}</span><label class="btn gray sm" style="display:inline-block">다른 폴더<input type="file" id="bkDir" webkitdirectory multiple hidden></label></div>
+  <div class="row" style="margin-top:10px"><label>교재 <select id="bkBook">${bankBooks().map(b => `<option${b === f.book ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>
+    <label>과정 <select id="bkGroup"><option value="">전체</option>${groups.map(g => `<option${g === f.group ? ' selected' : ''}>${esc(g)}</option>`).join('')}</select></label>
+    <label>난이도 <select id="bkLv"><option value="">전체</option>${[1, 2, 3, 4, 5].map(k => `<option${String(k) === f.lv ? ' selected' : ''}>${k}</option>`).join('')}</select></label>
+    <label>형식 <select id="bkForm">${[['', '전체'], ['단답형', '단답형'], ['객관식', '객관식'], ['소문항형', '소문항형'], ['서술형', '서술형'], ['증명', '증명']].map(([v, l]) => `<option value="${v}"${v === f.form ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+    <input id="bkQ" placeholder="검색 (문제 글·유형·번호)" value="${esc(f.q)}" style="width:170px"></div>
+  ${units.length ? `<div class="row" style="margin-top:8px;gap:4px 12px"><span class="mute" style="font-size:12px">단원</span>${units.map(u => `<label style="font-size:13px"><input type="checkbox" class="bkUnit" value="${esc(u)}"${f.units.includes(u) ? ' checked' : ''}> ${esc(u)}</label>`).join('')}</div>` : ''}
+  <div class="row" style="margin-top:8px"><label><input type="checkbox" id="bkInt"${f.intOnly ? ' checked' : ''}> 정답이 0~999 정수인 문제만</label>
+    <label><input type="checkbox" id="bkSkip"${f.skipUsed ? ' checked' : ''}> 이미 낸 문제 빼기</label>
+    <span class="mute">${BANK.busy ? '<span class="busy"></span> 찾는 중…' : BANK.list.length + '문제'}</span>
+    <label>무작위로 <input id="bkRandN" style="width:44px" inputmode="numeric" value="${ae ? (o.nAE || 5) : (o.n || 10)}"> 문제</label><button class="btn gray sm" id="bkRand"${BANK.list.length ? '' : ' disabled'}>담기(난이도 고르게)</button></div>
+  <div class="bsel"><div class="row"><b>고른 문제 ${BANK.sel.length}개</b>${BANK.sel.length ? '<button class="btn gray sm" id="bkClear">모두 빼기</button>' : ''}
+    <span class="mute" style="font-size:12px">${ae ? '전부 서술형: 1~20문제' : '정답형: 10문제 또는 20문제'}${!ae && nonInt ? ` · 정답이 정수가 아닌 ${nonInt}문제는 서술형으로 들어감` : ''}</span></div>
+    ${BANK.sel.map((r, i) => `<div class="bselr"><span class="num">${i + 1}</span><span class="mute">${esc((r.출처 || {}).교재 || '')} ${esc(bankUnitName(r))} ${esc((r.출처 || {}).번호 ?? '')}번</span><span style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(bankPlain(bankStatement(r)).slice(0, 70))}</span>
+      <button class="btn gray sm" data-bup="${i}"${i ? '' : ' disabled'}>▲</button><button class="btn gray sm" data-bdn="${i}"${i < BANK.sel.length - 1 ? '' : ' disabled'}>▼</button><button class="btn red sm" data-bdel="${i}">빼기</button></div>`).join('')}
+    <div class="row" style="margin-top:10px">${common}</div>
+    <div class="row" style="margin-top:8px">${ae ? `<label>문항별 배점 <input id="bkEP" style="width:120px" value="${esc(o.epAE || '')}" placeholder="비우면 똑같이"></label>` : `<label>정답 배점 <input id="bkAP" style="width:70px" value="${esc(o.ap || '5')}"></label>`}
+      <label>총점 <input id="bkTotal" style="width:56px" value="${esc(o.total || 100)}" inputmode="numeric"></label><label>시험 이름 <input id="bkTitle" placeholder="비우면 「반 유형」" style="width:180px"></label></div>
+    <div class="row" style="margin-top:12px"><button class="btn big" id="bkMake"${BUSY || !nOk ? ' disabled' : ''}>고른 ${BANK.sel.length}문제로 시험지 만들기</button>${!nOk && BANK.sel.length ? `<span class="mute">${ae ? '1~20문제를 골라 주세요' : '10문제 또는 20문제를 골라 주세요(전부 서술형은 1~20문제)'}</span>` : ''}</div>${busyLine()}</div>
+  <div id="bkList">${shown.map(r => bankCardHTML(r, selSet.has(r.id))).join('') || '<p class="mute">조건에 맞는 문제가 없습니다.</p>'}</div>
+  ${BANK.list.length > shown.length ? `<button class="btn gray" id="bkMore">더 보기 (${BANK.list.length - shown.length}문제 남음)</button>` : ''}</div>`;
+}
+async function bankPaintFigs(){
+  for (const el of document.querySelectorAll('[data-bfig]')){
+    if (el.dataset.done) continue; el.dataset.done = '1';
+    const r = BANK.list.find(x => x.id === el.dataset.bfig) || BANK.sel.find(x => x.id === el.dataset.bfig); if (!r) continue;
+    for (const nm of bankFigNames(r)){ const f = bankFigFile(r, nm); if (!f) { el.insertAdjacentHTML('beforeend', `<span class="pill p-bad">그림 파일 없음: ${esc(nm)}</span>`); continue; }
+      const img = document.createElement('img'); img.src = URL.createObjectURL(f); img.style.cssText = 'max-width:260px;max-height:200px;margin:4px 8px 0 0'; el.appendChild(img); }
+  }
+}
+function bankPickRandom(n){
+  const pool = BANK.list.filter(r => !BANK.sel.some(s => s.id === r.id)); if (!pool.length) return;
+  const byLv = {}; pool.forEach(r => (byLv[r.난이도 || 0] = byLv[r.난이도 || 0] || []).push(r));
+  Object.values(byLv).forEach(a => a.sort(() => Math.random() - 0.5));
+  const lvs = Object.keys(byLv).sort((a, b) => a - b), got = [];
+  while (got.length < n && lvs.some(l => byLv[l].length)) for (const l of lvs){ if (got.length >= n) break; const r = byLv[l].pop(); if (r) got.push(r); }
+  got.sort((a, b) => (a.난이도 || 0) - (b.난이도 || 0));
+  BANK.sel.push(...got);
+}
+async function bankFigureDataURL(r){       // 문제 그림 여러 장을 위아래로 이어 한 장(PNG)으로
+  const imgs = [];
+  for (const nm of bankFigNames(r)){ const f = bankFigFile(r, nm); if (!f) continue;
+    const url = URL.createObjectURL(f); const im = new Image(); await new Promise((ok, no) => { im.onload = ok; im.onerror = no; im.src = url; }).catch(() => null); if (im.naturalWidth) imgs.push(im); }
+  if (!imgs.length) return null;
+  const gap = 16, W = Math.min(1400, Math.max(...imgs.map(i => i.naturalWidth))), sc = imgs.map(i => Math.min(1, W / i.naturalWidth));
+  const H = imgs.reduce((h, im, k) => h + Math.round(im.naturalHeight * sc[k]) + (k ? gap : 0), 0);
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+  let y = 0; imgs.forEach((im, k) => { const w = Math.round(im.naturalWidth * sc[k]), h = Math.round(im.naturalHeight * sc[k]); g.drawImage(im, Math.round((W - w) / 2), y, w, h); y += h + gap; });
+  return c.toDataURL('image/png');
+}
+async function bankMakeExam(o){
+  const sel = BANK.sel.slice(), ae = o.kind === '1', n = ae ? sel.length : (sel.length <= 10 ? 10 : 20);
+  if (ae ? !(n >= 1 && n <= 20) : sel.length !== n) throw new Error(ae ? '전부 서술형은 1~20문제를 골라 주세요' : '정답형은 10문제 또는 20문제를 골라 주세요');
+  const testType = TEST_TYPES.includes(o.testType) ? o.testType : '단원테스트', total = Number(o.total) || 100;
+  const intAns = sel.map(r => bankIntAns(r)), essIdx = ae ? sel.map((r, i) => i) : intAns.map((a, i) => a === null ? i : -1).filter(i => i >= 0);
+  const ap = Number(o.ap) || 5, ansPts = sel.map((r, i) => ae || intAns[i] === null ? 0 : ap), essPts = Array(n).fill(0);
+  const epList = String(o.ep || '').split(/[,\s]+/).map(Number).filter(x => x > 0);
+  const pts = epList.length ? essIdx.map((_, k) => epList[Math.min(k, epList.length - 1)]) : splitEssay(total - sum(ansPts), essIdx.map(i => (sel[i].난이도 || 3) + 0.01 * i));
+  essIdx.forEach((i, k) => essPts[i] = pts[k]);
+  const id = 'e' + Date.now(), when = fmtDate(o.date) || new Date().toISOString().slice(0, 10);
+  const area = [...new Set(sel.map(r => (r.출처 || {}).단원명).filter(Boolean))].slice(0, 3).join('·');
+  const ex = fixExam({ id, name: o.title || `${o.course} ${testType}`, autoName: !o.title, testType, round: '', date: fmtDate(o.date), course: o.course, n, allEssay: ae,
+    answers: Array(n).fill(''), ansPts, essPts, probs: [], area: area.slice(0, 30), fromBank: sel.map(r => r.id) });
+  for (let i = 0; i < n; i++){
+    const r = sel[i], src = r.출처 || {}, a = bankAnswer(r), proof = a === '(증명)', p = ex.probs[i] = {};
+    p.statement = bankStatement(r); p.area = src.단원명 || ''; p.src = `${src.교재 || ''} ${src.단원명 || ''} ${src.번호 ?? ''}번`.replace(/\s+/g, ' ').trim(); p.bankId = r.id;
+    p.type = proof ? '증명' : '구하기';
+    const solTxt = bankClean(r.해설); p.solution = (a && !proof ? `정답: $${a}$\n` : '') + (solTxt || '(교재 해설 그림 참고 · 문제은행 ' + r.id + ')');
+    ex.answers[i] = ae ? (proof ? '' : a.slice(0, 80)) : (intAns[i] ?? '');
+    const ep = essPts[i];
+    p.rubric = ep ? (proof ? [{ desc: '증명의 핵심 단계(필요한 성질·정리를 바르게 사용)', points: Math.round(ep * 0.7) }, { desc: '논리의 완결성(빠진 경우·순환논리 없음)', points: ep - Math.round(ep * 0.7) }]
+      : [{ desc: '풀이 과정(식·근거)', points: Math.round(ep * 0.6) }, { desc: `정답 ${bankPlain(a)}`, points: ep - Math.round(ep * 0.6) }]) : [];
+    const d = await bankFigureDataURL(r); if (d){ await setImg(probImgKey(id, i), d); p.img = true; }
+    p.svg = '';
+  }
+  S.exams.push(ex); S.current = id;
+  sel.forEach(r => bankUsed()[r.id] = ex.name ? `${when} ${ex.name}` : when);
+  BANK.sel = []; save(); return ex;
+}
+function bindBank(){
+  const $ = id => document.getElementById(id); if (!$('bkDir') && !$('bkBook')) return;
+  const rer = () => { render(); };
+  if ($('bkDir')) $('bkDir').onchange = e => runBusy('문제은행 읽는 중…', async () => { BANK.err = ''; try { await bankLoadFolder(e.target.files); await bankFilter(); } catch(err){ BANK.err = err.message || String(err); } });
+  if (!$('bkBook')) return;
+  const refilter = () => { const k = ++BANK.seq; BANK.busy = true; render(); bankFilter().then(() => { if (k === BANK.seq){ BANK.busy = false; render(); } }).catch(e => { BANK.busy = false; toast(e.message || String(e)); render(); }); };
+  $('bkBook').onchange = e => { BANK.f.book = e.target.value; BANK.f.group = ''; BANK.f.units = []; refilter(); };
+  $('bkGroup').onchange = e => { BANK.f.group = e.target.value; BANK.f.units = []; refilter(); };
+  $('bkLv').onchange = e => { BANK.f.lv = e.target.value; refilter(); };
+  $('bkForm').onchange = e => { BANK.f.form = e.target.value; refilter(); };
+  $('bkQ').onchange = e => { BANK.f.q = e.target.value; refilter(); };
+  $('bkInt').onchange = e => { BANK.f.intOnly = e.target.checked; refilter(); };
+  $('bkSkip').onchange = e => { BANK.f.skipUsed = e.target.checked; refilter(); };
+  document.querySelectorAll('.bkUnit').forEach(c => c.onchange = () => { BANK.f.units = [...document.querySelectorAll('.bkUnit:checked')].map(x => x.value); refilter(); });
+  if ($('bkMore')) $('bkMore').onclick = () => { BANK.page++; rer(); };
+  if ($('bkRand')) $('bkRand').onclick = () => { bankPickRandom(Math.max(1, Math.min(20, +$('bkRandN').value || 10))); rer(); };
+  if ($('bkClear')) $('bkClear').onclick = () => { BANK.sel = []; rer(); };
+  document.querySelectorAll('[data-bpick]').forEach(c => c.onchange = () => { const id = c.dataset.bpick;
+    if (c.checked){ const r = BANK.list.find(x => x.id === id); if (r && !BANK.sel.some(x => x.id === id)) BANK.sel.push(r); } else BANK.sel = BANK.sel.filter(x => x.id !== id); rer(); });
+  document.querySelectorAll('[data-bup]').forEach(b => b.onclick = () => { const i = +b.dataset.bup; [BANK.sel[i - 1], BANK.sel[i]] = [BANK.sel[i], BANK.sel[i - 1]]; rer(); });
+  document.querySelectorAll('[data-bdn]').forEach(b => b.onclick = () => { const i = +b.dataset.bdn; [BANK.sel[i + 1], BANK.sel[i]] = [BANK.sel[i], BANK.sel[i + 1]]; rer(); });
+  document.querySelectorAll('[data-bdel]').forEach(b => b.onclick = () => { BANK.sel.splice(+b.dataset.bdel, 1); rer(); });
+  if ($('bkMake')) $('bkMake').onclick = () => {
+    const ol = S.settings.autoLast = S.settings.autoLast || {};
+    const o = { kind: ol.kind || '0', course: $('aCourse').value, testType: $('aType').value, date: $('aDate').value, total: $('bkTotal').value, title: $('bkTitle').value.trim(), ap: $('bkAP') ? $('bkAP').value : '', ep: $('bkEP') ? $('bkEP').value : '' };
+    Object.assign(ol, { course: o.course, testType: o.testType, date: o.date, total: o.total }); if ($('bkAP')) ol.ap = o.ap;
+    runBusy('시험지 만드는 중…', async () => { const ex = await bankMakeExam(o); TAB = 'list'; setTimeout(() => toastSoft(`「${ex.name}」을 만들었습니다 (${ex.n}문항)`), 50); });
+  };
+  bankPaintFigs();
+}
+
 let TAB = 'auto';
 function render(){
   if (CLOUD_MODE && !CLOUD.on){ if (window.firebase && firebase.auth) showLogin(''); return; }
