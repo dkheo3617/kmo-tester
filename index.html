@@ -1319,6 +1319,8 @@ function pickProblems(book, opt, slots){
       if (sc < bs){ bs = sc; best = c; } }
     used.add(best.key); unitCnt[best.unit] = (unitCnt[best.unit] || 0) + 1; typeCnt[best.type] = (typeCnt[best.type] || 0) + 1; chosen.push(best);
   });
+  { const ft = figTarget(opt, slots.length), fixed = adjustFig(chosen, cands, ft, c => !!c.figure, c => c.level || 3, c => c.key, c => c.unit, new Set(must.map(c => c.key)));
+    chosen.splice(0, chosen.length, ...fixed); if (ft !== null && chosen.filter(c => c.figure).length !== ft) opt.figShort = `그림 문제를 ${ft}개 맞추지 못했습니다(범위 안 문제가 모자람)`; }
   // 쉬운 문제부터 배점이 작은 칸에
   chosen.sort((a, b) => a.level - b.level || a.page - b.page);
   const out = Array(slots.length); order.forEach((si, k) => out[si] = chosen[k]);
@@ -1368,7 +1370,7 @@ async function genFromBook(book, ex, picks, modes, note, only){
     const solPages = [...new Set(Object.values(solMap).flat())].sort((a, b) => a - b).slice(0, 3);
     for (const sp of solPages){ const c = await pageCanvas(book.sol.id, sp, 1500); content.push({ type: 'text', text: `[해설 ${sp}쪽]` }, imgPart(c.toDataURL('image/jpeg', 0.78))); }
     const ae = AE(ex), idx = g.flatMap(p => byPage[p]);
-    const slotLines = idx.map(i => { const pk = picks[i], ep = Number(ex.essPts[i]) || 0, how = `방식 「${SIM[modes[i]].label}」`;
+    const slotLines = idx.map(i => { const pk = picks[i], ep = Number(ex.essPts[i]) || 0, how = `방식 「${SIM[modes[i]].label}」${modes[i] === 'same' || String((ex.genAuto || {}).figPct ?? '') === '' ? '' : pk.figure ? ', 그림 있는 문제' : ', 그림 없이 글로만'}`;
       return ae ? `- slot ${i+1}: 교재 ${pk.page}쪽 ${pk.no}번 문제(${pk.topic || pk.unit}) → 시험 ${i+1}번, ${how}, 서술형 ${ep}점(rubric 단계별 점수 합 ${ep})`
         : `- slot ${i+1}: 교재 ${pk.page}쪽 ${pk.no}번 문제(${pk.topic || pk.unit}) → 시험 ${i+1}번, ${how}, 정답 배점 ${ex.ansPts[i]}점${ep ? `, 서술형 ${ep}점(풀이를 쓰게 하는 문제로, rubric 단계별 점수 합 ${ep})` : ''}`; }).join('\n');
     const simT = m => ae ? SIM[m].text.replace(/ 답이 0~999 정수가 아니면[^.]*\. ?/, ' ').replace('조건이 성립하고 답이 0~999 정수가 되게 합니다.', '조건이 성립하고 결론이 하나로 정해지게 합니다.') : SIM[m].text;
@@ -1444,7 +1446,7 @@ async function autoMake(o){
   const id = 'e' + Date.now(), nosTxt = o.want.length ? o.want.join('·') + '번' : '';
   const unitsTxt = [o.units.length ? o.units.join('·') : '', o.from ? `${o.from}~${o.to}쪽` : '', nosTxt].filter(Boolean).join(' ');
   const ex = fixExam({ id, name: o.title || `${o.course} ${testType}`, autoName: !o.title, testType, round: '', date: fmtDate(o.date), course: o.course, n, allEssay: ae,
-    answers: Array(n).fill(''), ansPts, essPts, probs: [], area: unitsTxt.slice(0, 30), genAuto: { bookId: book.id, mix: o.mix, units: o.units, from: o.from, to: o.to, nos: o.nos || '', kind: ae ? '1' : '0' } });
+    answers: Array(n).fill(''), ansPts, essPts, probs: [], area: unitsTxt.slice(0, 30), genAuto: { bookId: book.id, mix: o.mix, units: o.units, from: o.from, to: o.to, nos: o.nos || '', kind: ae ? '1' : '0', figPct: o.figPct || '' } });
   S.exams.push(ex); S.current = id; save();
   // 4) 출제
   await genFromBook(book, ex, picks, modes, o.note);
@@ -1645,7 +1647,7 @@ function viewAuto(){
   const isB = isBankBook(bid), b = isB ? null : S.books.find(x => x.id === bid);
   const units = isB ? bankUnitsOf(bid.slice(5)).map(name => ({ name })) : (b ? bookUnits(b) : []), selU = (o.bookId === bid ? o.units : null) || [];
   const mix = mixOf(o), uc = b ? usedCount(b) : 0, onlySame = Object.keys(SIM).every(k => k === 'same' ? +mix[k] > 0 : !(+mix[k] > 0));
-  const sumTxt = [Object.keys(SIM).filter(k => +mix[k] > 0).map(k => `${SIM[k].label} ${mix[k]}%`).join(' · '), o.skipUsed !== false && uc ? `이미 낸 ${uc}문제 빼기` : ''].filter(Boolean).join(' · ');
+  const sumTxt = [Object.keys(SIM).filter(k => +mix[k] > 0).map(k => `${SIM[k].label} ${mix[k]}%`).join(' · '), o.skipUsed !== false && uc ? `이미 낸 ${uc}문제 빼기` : '', String(o.figPct ?? '').trim() !== '' ? `그림 문제 ${o.figPct}%` : ''].filter(Boolean).join(' · ');
   return `<div class="card">${head}
   <div class="row"><label>교재 <select id="aBook">${S.books.length ? `<optgroup label="교재 PDF">${S.books.map(x => `<option value="${esc(x.id)}"${b && x.id === b.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''}${BANK.index ? `<optgroup label="문제은행">${bankAllGroups().map(g => `<option value="bank:${esc(g)}"${bid === 'bank:' + g ? ' selected' : ''}>${esc(g)}</option>`).join('')}</optgroup>` : ''}</select></label>${BANK.index ? '' : bankLoadButtonsHTML()}${common}</div>
   <div class="row" style="margin-top:12px"><label>문항 번호 <input id="aNos" style="width:150px" value="${esc(o.nos || '')}" placeholder="${isB ? '예: 1~30, 5,9-11' : '예: 1-79'}"></label>
@@ -1657,6 +1659,7 @@ function viewAuto(){
   <details id="aMore" style="margin-top:12px"${S.settings.autoMoreOpen ? ' open' : ''}><summary class="mute" style="cursor:pointer">세부 설정 <span style="font-size:12px">${esc(sumTxt)}</span></summary>
     <div class="more">
       <div class="row"><span class="lab">문항 유사도</span>${Object.entries(SIM).map(([k, v]) => `<label>${v.label} <input class="aMix" data-k="${k}" style="width:48px" inputmode="numeric" value="${esc(mix[k] || 0)}">%</label>`).join('')}<span class="mute" id="aMixOut"></span></div>
+      <div class="row"><span class="lab">그림 문제</span><label><input id="aFigPct" style="width:48px" inputmode="numeric" value="${esc(o.figPct ?? '')}" placeholder="-">%</label><span class="mute" style="font-size:12px">비우면 상관없음 · 0이면 그림 없는 문제만 · 50이면 절반</span></div>
       <div class="row"><span class="lab">이미 낸 문제</span><label><input type="checkbox" id="aSkip"${o.skipUsed === false ? '' : ' checked'}> 빼기${uc ? ` (${uc}문제)` : ''}</label>${isB ? '' : `<button class="btn gray sm" type="button" data-used="${b ? esc(b.id) : ''}">낸 문제 적기</button>`}
         ${ae ? `<label><input type="checkbox" id="aExact"${o.nExact ? ' checked' : ''}> 문항 번호 개수만큼 출제</label>` : ''}</div>
       <div class="row"><span class="lab">배점</span>${ae ? `<label>문항별 <input id="aEP" style="width:120px" value="${esc(o.epAE || '')}" placeholder="비우면 똑같이"></label>`
@@ -1726,7 +1729,7 @@ function bindAuto(){
       const prev = S.settings.autoLast || {}, kind = (document.querySelector('[name=aKind]:checked') || {}).value || '0', ae = kind === '1', v = id => $(id) ? $(id).value.trim() : '';
       const o = { ...prev, kind, bookId: $('aBook').value, date: $('aDate').value, course: $('aCourse').value, title: $('aTitle').value.trim(), total: +$('aTotal').value || 100,
         units: [...document.querySelectorAll('.aUnit:checked')].map(x => x.value), from: +$('aFrom').value || 0, to: +$('aTo').value || 0, nos: v('aNos'),
-        skipUsed: $('aSkip').checked, testType: $('aType').value, note: $('aNote').value.trim(),
+        skipUsed: $('aSkip').checked, testType: $('aType').value, note: $('aNote').value.trim(), figPct: $('aFigPct') ? $('aFigPct').value.trim() : '',
         mix: Object.fromEntries([...document.querySelectorAll('.aMix')].map(x => [x.dataset.k, Math.max(0, +x.value || 0)])) };
       if (ae){ o.nAE = +$('aN').value || 5; o.epAE = v('aEP'); o.nExact = !!($('aExact') && $('aExact').checked); }
       else { o.n = +$('aN').value || 10; o.ap = v('aAP'); o.eq = v('aEQ'); o.ep = v('aEP'); }
@@ -1740,7 +1743,7 @@ function bindAuto(){
       document.querySelectorAll('.aMix').forEach(x => m[x.dataset.k] = +x.value || 0); const c = mixCounts(m, n);
       $('aMixOut').textContent = sum(Object.values(m)) ? '→ ' + Object.keys(SIM).filter(k => c[k]).map(k => `${SIM[k].label} ${c[k]}문항`).join(' · ') : '비중을 하나 이상 넣어 주세요'; };
     mixOut(); document.querySelectorAll('.aMix').forEach(x => x.addEventListener('input', mixOut)); $('aN').addEventListener('change', mixOut);
-    for (const id of ['aType', 'aDate', 'aCourse', 'aFrom', 'aTo', 'aNos', 'aN', 'aAP', 'aEQ', 'aEP', 'aTotal', 'aNote', 'aSkip', 'aExact']) if ($(id)) $(id).addEventListener('change', collect);
+    for (const id of ['aType', 'aDate', 'aCourse', 'aFrom', 'aTo', 'aNos', 'aN', 'aAP', 'aEQ', 'aEP', 'aTotal', 'aNote', 'aSkip', 'aExact', 'aFigPct']) if ($(id)) $(id).addEventListener('change', collect);
     document.querySelectorAll('.aMix').forEach(x => x.addEventListener('change', collect));
     $('aRun').onclick = () => { const o = collect();
       if (!sum(Object.values(o.mix))) return toast('문항 유사도 비중을 하나 이상 넣어 주세요');
@@ -1748,7 +1751,7 @@ function bindAuto(){
       runBusy('자동 출제 준비 중…', async () => { const ex = await autoMake(o); TAB = 'list';
         const bad = ex.probs.filter((p, i) => verifyBad(ex, i)).length;
         const essTxt = AE(ex) ? ` · 배점 ${ex.essPts.join('·')}점` : essQs(ex).length ? ` · 서술 배점 ${essQs(ex).map(i => `${i+1}번 ${ex.essPts[i]}`).join(', ')}점` : '';
-        const extra = [o.nFrom ? `문항 번호로 찾은 ${ex.n}문항만 냈습니다(문항 수 ${o.nFrom})` : '', o.missNos ? `못 찾은 번호: ${o.missNos.join(', ')}` : ''].filter(Boolean).join(' · ');
+        const extra = [o.figShort || '', o.nFrom ? `문항 번호로 찾은 ${ex.n}문항만 냈습니다(문항 수 ${o.nFrom})` : '', o.missNos ? `못 찾은 번호: ${o.missNos.join(', ')}` : ''].filter(Boolean).join(' · ');
         setTimeout(() => toastSoft((bad ? `만들었습니다 · 검산 ${AE(ex) ? '문제 있음' : '불일치·정답 없음'} ${bad}문항을 확인해 주세요` : `만들었습니다 · 모든 문항 검산 ${AE(ex) ? '통과' : '일치'}`) + essTxt), 50);
         if (extra) setTimeout(() => toast(extra), 80); }); };
   }
@@ -2046,8 +2049,11 @@ function bankPick(cands, slots, o, modes){
       if (sc < bs){ bs = sc; best = r; } }
     used.add(best.id); unitCnt[bankUnitName(best)] = (unitCnt[bankUnitName(best)] || 0) + 1; chosen.push(best);
   });
-  chosen.sort((a, b) => (a.난이도 || 3) - (b.난이도 || 3));
-  const out = Array(slots.length); order.forEach((si, k) => out[si] = chosen[k]); return out;
+  const ft = figTarget(o, slots.length);
+  const fixed = adjustFig(chosen, pool, ft, r => bankFigNames(r).length > 0, r => r.난이도 || 3, r => r.id, r => bankUnitName(r), new Set());
+  if (ft !== null && fixed.filter(r => bankFigNames(r).length > 0).length !== ft) o.figShort = `그림 문제를 ${ft}개 맞추지 못했습니다(범위 안에 ${ft > fixed.filter(r => bankFigNames(r).length > 0).length ? '그림 있는' : '그림 없는'} 문제가 모자람)`;
+  fixed.sort((a, b) => (a.난이도 || 3) - (b.난이도 || 3));
+  const out = Array(slots.length); order.forEach((si, k) => out[si] = fixed[k]); return out;
 }
 function bankSrc(r){ const o = r.출처 || {}; return `${o.교재 || ''} ${o.단원명 || ''} ${o.번호 ?? ''}번`.replace(/\s+/g, ' ').trim(); }
 function bankDefaultRubric(r, ep){ const a = bankAnswer(r), proof = a === '(증명)';
@@ -2079,7 +2085,7 @@ async function bankGen(ex, picks, modes, note, only){   // 숫자만 변경·형
     const used = [...new Set(grp.map(i => modes[i]))];
     const simT = m => { let t = SIM[m].text.replace('figure 를 {"type":"crop","page":쪽,"bbox":[x0,y0,x1,y1]} 로 교재 그림 영역(쪽 그림 기준 0~1 비율, 그림만 넉넉히)을 줍니다', 'figure 를 {"type":"orig"} 로 둡니다(원래 그림을 그대로 씀)').replace('crop 을 써도 됩니다', '{"type":"orig"} 를 써도 됩니다');
       return ae ? t.replace(/ 답이 0~999 정수가 아니면[^.]*\. ?/, ' ').replace('조건이 성립하고 답이 0~999 정수가 되게 합니다.', '조건이 성립하고 결론이 하나로 정해지게 합니다.') : t; };
-    const slotLines = grp.map(i => { const ep = Number(ex.essPts[i]) || 0, how = `방식 「${SIM[modes[i]].label}」`;
+    const slotLines = grp.map(i => { const ep = Number(ex.essPts[i]) || 0, how = `방식 「${SIM[modes[i]].label}」${modes[i] === 'same' ? '' : figs[i] ? ', 그림 있는 문제(원래 그림 또는 새 svg)' : ', 그림 없이 글로만'}`;
       return ae ? `- slot ${i+1}: 위 「slot ${i+1} 원래 문제」 → 시험 ${i+1}번, ${how}, 서술형 ${ep}점(rubric 단계별 점수 합 ${ep})`
         : `- slot ${i+1}: 위 「slot ${i+1} 원래 문제」 → 시험 ${i+1}번, ${how}, 정답 배점 ${ex.ansPts[i]}점${ep ? `, 서술형 ${ep}점(풀이를 쓰게 하는 문제로, rubric 단계별 점수 합 ${ep})` : ''}`; }).join('\n');
     content.push({ type: 'text', text: `위 교재 문제(문제은행)를 바탕으로 시험 문항을 만들어 주세요. 문항마다 정해진 방식으로 만듭니다. 교재 정답·풀이가 있으면 그것을 참고하되, 바뀐 조건으로 다시 계산합니다.
@@ -2126,7 +2132,7 @@ async function bankAutoMake(o){
   const testType = TEST_TYPES.includes(o.testType) ? o.testType : '단원테스트', id = 'e' + Date.now();
   const area = [o.units.length ? o.units.map(u => u.replace(/^\d+\s/, '')).join('·') : '', o.nos ? o.nos + '번' : ''].filter(Boolean).join(' ') || group;
   const ex = fixExam({ id, name: o.title || `${o.course} ${testType}`, autoName: !o.title, testType, round: '', date: fmtDate(o.date), course: o.course, n, allEssay: ae,
-    answers: Array(n).fill(''), ansPts, essPts, probs: [], area: area.slice(0, 30), fromBank: picks.map(r => r.id), genAuto: { bookId: o.bookId, mix: o.mix, units: o.units, nos: o.nos || '', kind: ae ? '1' : '0' } });
+    answers: Array(n).fill(''), ansPts, essPts, probs: [], area: area.slice(0, 30), fromBank: picks.map(r => r.id), genAuto: { bookId: o.bookId, mix: o.mix, units: o.units, nos: o.nos || '', kind: ae ? '1' : '0', figPct: o.figPct || '' } });
   S.exams.push(ex); S.current = id; save();
   const direct = [], viaAI = [];
   picks.forEach((r, i) => (modes[i] === 'same' && (ae || essPts[i] > 0 || bankIntAns(r) !== null) ? direct : viaAI).push(i));
@@ -2171,6 +2177,23 @@ function bankAIHook(){   // AI 화면: 문제은행 교재를 고르면 범위 �
 }
 function bankLoadButtonsHTML(){
   return `<span class="row" style="gap:6px">${CLOUD_MODE ? `<button class="btn gray sm" id="bkDrive"${BUSY ? ' disabled' : ''}>문제은행 불러오기(구글드라이브)</button>` : ''}<label class="btn gray sm" style="display:inline-block">${CLOUD_MODE ? '컴퓨터 폴더' : '문제은행 폴더 불러오기'}<input type="file" id="bkDir" webkitdirectory multiple hidden></label></span>`;
+}
+// ---- 그림 문제 비중: 고른 문제 중 그림 있는 문제 수를 맞춤 ----
+function figTarget(o, n){ const t = String(o.figPct ?? '').trim(); if (t === '' || !isFinite(+t)) return null; return Math.max(0, Math.min(n, Math.round(Math.max(0, Math.min(100, +t)) / 100 * n))); }
+function adjustFig(chosen, pool, k, hasFig, levelOf, keyOf, unitOf, locked){
+  if (k === null) return chosen;
+  const out = chosen.slice(), used = new Set(out.map(keyOf));
+  const fix = (needFig) => {   // needFig=true: 그림 없는 것을 그림 있는 것으로 바꿈
+    const idxs = out.map((c, i) => i).filter(i => !locked.has(keyOf(out[i])) && hasFig(out[i]) !== needFig);
+    const cand = pool.filter(c => !used.has(keyOf(c)) && hasFig(c) === needFig);
+    for (const i of idxs){ if (!cand.length) return false; const cur = out[i];
+      let bi = 0, bs = 1e9; cand.forEach((c, j) => { const sc = Math.abs(levelOf(c) - levelOf(cur)) * 2 + (unitOf(c) === unitOf(cur) ? 0 : 0.7) + Math.random() * 0.3; if (sc < bs){ bs = sc; bi = j; } });
+      const nc = cand.splice(bi, 1)[0]; used.delete(keyOf(cur)); used.add(keyOf(nc)); out[i] = nc;
+      if (out.filter(hasFig).length === k) return true; }
+    return false; };
+  let have = out.filter(hasFig).length;
+  if (have < k) fix(true); else if (have > k) fix(false);
+  return out;
 }
 
 let TAB = 'auto';
