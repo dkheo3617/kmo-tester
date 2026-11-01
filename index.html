@@ -2196,6 +2196,140 @@ function adjustFig(chosen, pool, k, hasFig, levelOf, keyOf, unitOf, locked){
   return out;
 }
 
+// ------------------------------------------------------------ 그림 빼기(그림 없이 풀리게 문장 고치기) · 다시 그리기 · 되돌리기
+async function figSource(ex, i){
+  const p = ex.probs[i] || {};
+  if (p.img){ const d = await getImg(probImgKey(ex.id, i)); if (d) return { img: d }; }
+  if (p.svg) return { svg: p.svg };
+  return null;
+}
+function figAnsOf(ex, i){ return String(ex.answers[i] ?? '').trim(); }
+function figIsProof(ex, i){ const p = ex.probs[i] || {}, a = figAnsOf(ex, i); return /^(증명|작도)$/.test(p.type || '') || (AE(ex) && !a); }
+const figNum = v => { const m = String(v ?? '').replace(/[\s,$]/g, '').match(/^-?\d+(\.\d+)?$/); return m ? Number(m[0]) : null; };
+
+async function aiNoFig(ex, i){
+  const p = ex.probs[i] || {}, src = await figSource(ex, i);
+  if (!src) throw new Error(`${i+1}번에는 그림이 없습니다`);
+  const ans = figAnsOf(ex, i), proof = figIsProof(ex, i);
+  const content = [];
+  if (src.img) content.push(imgPart(src.img));
+  content.push({ type: 'text', text: `시험 문제에서 그림을 빼려고 합니다. 그림이 없어도 학생이 똑같이 풀 수 있도록 문제 문장을 고쳐 써 주세요.
+- 그림에만 나와 있는 조건을 빠짐없이 문장으로 옮깁니다: 점의 위치와 순서(어느 변 위, 연장선 위, 안쪽/바깥쪽), 선분의 길이, 각의 크기, 평행·수직, 원과 접함·지남, 같은 길이·같은 각 표시, 칠한 부분이 어디인지 등.
+- 원래 문장의 묻는 것과 숫자는 바꾸지 않습니다. 「다음 그림과 같이」「그림에서」 같은 말은 없앱니다.
+- 그림에 적혀 있더라도 구할 값이나 정답을 드러내는 정보는 넣지 않습니다.
+- 문제 글이 비어 있으면 그림 속에 있는 문제 전체를 글로 옮깁니다.
+- 조건이 모호해지지 않게, 하지만 군더더기 없이 씁니다. 수식은 $...$.
+- 글로 옮기면 조건이 모호해지거나 지나치게 길어지는 경우(복잡한 도형, 그림을 보고 세거나 길을 찾는 문제 등)는 ok 를 false 로 하고 reason 에 이유를 짧게 씁니다.
+
+문제 글: ${p.statement ? p.statement : '(비어 있음 — 그림이 곧 문제)'}
+${src.img ? '그림: [그림 1]' : `그림(SVG): ${String(src.svg).slice(0, 12000)}`}
+${proof ? '이 문항은 증명·작도 문항입니다.' : `정답: ${ans || '(모름)'}`}
+${p.solution ? `풀이(참고): ${String(p.solution).slice(0, 3000)}` : ''}
+
+출력(JSON 하나): {"ok":true,"statement":"고친 문제 전체","added":["문장으로 옮긴 조건 요약", "..."],"reason":""}` });
+  const j = parseJSON(await callAI(content, { system: SYS, max: 8000 }));
+  if (!j.ok || !String(j.statement || '').trim()) return { ok: false, reason: String(j.reason || 'AI가 글로 옮기기 어렵다고 했습니다') };
+  const st = String(j.statement).trim();
+  // 그림 없이 고친 문장만 보고 따로 풀어 봄
+  const v = parseJSON(await callAI([{ type: 'text', text: `다음 문제를 그림 없이 문장만 보고 풉니다. 문장만으로 조건이 충분하고 답(또는 증명할 내용)이 하나로 정해지는지도 판단해 주세요.
+문제: ${st}
+출력(JSON 하나): {"enough":true,"answer":${proof ? '"증명"' : '"최종 답"'},"note":"모자라거나 모호한 조건이 있으면 짧게"}` }], { system: SYS, max: 8000 }));
+  let check;
+  if (v.enough === false) check = { ok: false, msg: `문장만으로는 조건이 모자랍니다: ${v.note || ''}` };
+  else if (proof) check = { ok: true, msg: '문장만으로 조건이 충분합니다(증명·작도 문항)' };
+  else {
+    const a = figNum(ans), b = figNum(v.answer);
+    if (!ans) check = { ok: null, msg: `정답이 비어 있어 비교하지 못했습니다(AI 풀이 답 ${v.answer})` };
+    else if (a !== null && b !== null) check = a === b ? { ok: true, msg: `다시 푼 답 ${v.answer} = 정답 ${ans}` } : { ok: false, msg: `다시 푼 답 ${v.answer} ≠ 정답 ${ans}` };
+    else check = String(v.answer).replace(/\s/g, '') === ans.replace(/\s/g, '') ? { ok: true, msg: `다시 푼 답 ${v.answer} = 정답 ${ans}` } : { ok: null, msg: `다시 푼 답 「${v.answer}」, 정답 「${ans}」 — 같은지 직접 확인해 주세요` };
+  }
+  return { ok: true, statement: st, added: (j.added || []).map(String), check };
+}
+
+async function aiRedraw(ex, i){
+  const p = ex.probs[i] || {}, src = await figSource(ex, i);
+  if (!p.statement && !src) throw new Error(`${i+1}번에 문제 글이 없습니다`);
+  const content = [];
+  if (src && src.img) content.push(imgPart(src.img));
+  content.push({ type: 'text', text: `다음 문제에 맞는 그림을 SVG로 정확하게 그려 주세요.
+- viewBox="0 0 320 220", 흰 바탕, 검은 선 stroke-width 1.5, 점 이름은 글자(font-size 13 정도)로, 꼭 필요한 길이·각만 표시.
+- 문제 문장의 조건(길이 비율, 각, 평행·수직, 점의 위치)에 맞게 좌표를 계산해서 그립니다. 정답이 드러나는 값은 적지 않습니다.
+- 그림 안에 문제 글이 들어 있으면 글은 빼고 도형만 그립니다.
+문제: ${p.statement || '(그림 속 문제를 보세요)'}
+${src && src.img ? '지금 그림(참고): [그림 1]' : src && src.svg ? `지금 그림(SVG, 참고): ${String(src.svg).slice(0, 12000)}` : ''}
+출력(JSON 하나): {"svg":"<svg ...>...</svg>","note":"바뀐 점 짧게"}` });
+  const j = parseJSON(await callAI(content, { system: SYS, max: 12000 }));
+  const svg = cleanSVG(String(j.svg || ''));
+  if (!svg) throw new Error('AI가 그림을 그리지 못했습니다. 다시 눌러 보세요');
+  return { svg, note: String(j.note || '') };
+}
+
+function figKeepUndo(ex, i){       // 되돌리기용으로 지금 상태 보관(그림 파일은 지우지 않고 둠)
+  const p = ex.probs[i];
+  if (!p.figUndo) p.figUndo = { statement: p.statement || '', img: !!p.img, svg: p.svg || '' };
+}
+async function figApplyNoFig(ex, i, st){
+  const p = ex.probs[i]; figKeepUndo(ex, i);
+  if (st != null){ p.statement = st; delete p.verify; }
+  p.img = false; p.svg = ''; save(); render();
+}
+async function figUndo(ex, i){
+  const p = ex.probs[i], u = p.figUndo; if (!u) return;
+  p.statement = u.statement; p.svg = u.svg; p.img = u.img && !!(await getImg(probImgKey(ex.id, i)));
+  delete p.figUndo; delete p.verify; save(); render();
+}
+
+function figNoFigClick(i){
+  const ex = exam(); let res = null;
+  Promise.resolve(runBusy(`${i+1}번 그림 없이 풀리게 문장 고치는 중…`, async () => { res = await aiNoFig(ex, i); })).then(() => {
+    if (!res) return;
+    if (!res.ok){
+      openModal(`<h2>${i+1}번 그림 빼기</h2><p>AI가 이 그림은 글로 옮기기 어렵다고 했습니다.</p><p class="mute">${esc(res.reason)}</p>
+        <p>그림을 그대로 두는 것을 권합니다.</p>
+        <div class="row"><button class="btn" id="nfKeep">그림 그대로 두기</button><button class="btn red" id="nfOnly">그래도 그림만 빼기</button></div>`);
+      document.getElementById('nfKeep').onclick = closeModal;
+      document.getElementById('nfOnly').onclick = async () => { closeModal(); await figApplyNoFig(ex, i, null); };
+      return;
+    }
+    const c = res.check, cls = c.ok === true ? 'p-ok' : 'p-bad';
+    openModal(`<h2>${i+1}번 그림 빼기 — 고친 문제</h2>
+      <div class="render" style="border:1px solid #ddd;border-radius:8px;padding:10px;margin:8px 0">${mathHTML(res.statement)}</div>
+      ${res.added.length ? `<p class="mute" style="font-size:13px">문장으로 옮긴 조건: ${res.added.map(esc).join(' · ')}</p>` : ''}
+      <p><span class="pill ${cls}">${c.ok === true ? '검산 통과' : c.ok === false ? '검산 문제 있음' : '확인 필요'}</span> <span class="mute">${esc(c.msg)}</span></p>
+      ${c.ok === false ? '<p style="color:var(--red)">고친 문장으로는 원래 답이 나오지 않았습니다. 그림을 두거나 문장을 직접 고쳐 주세요.</p>' : ''}
+      <div class="row"><button class="btn${c.ok === false ? ' gray' : ''}" id="nfApply">이 문장으로 바꾸고 그림 빼기</button><button class="btn gray" id="nfCancel">취소(그림 그대로)</button></div>
+      <p class="mute" style="font-size:12px">바꾼 뒤에도 문항 카드의 「그림 되돌리기」로 원래대로 돌릴 수 있습니다.</p>`, true);
+    document.getElementById('nfApply').onclick = async () => { closeModal(); await figApplyNoFig(ex, i, res.statement); };
+    document.getElementById('nfCancel').onclick = closeModal;
+  });
+}
+function figRedrawClick(i){
+  const ex = exam(); let res = null;
+  Promise.resolve(runBusy(`${i+1}번 그림 다시 그리는 중…`, async () => { res = await aiRedraw(ex, i); })).then(() => {
+    if (!res) return;
+    openModal(`<h2>${i+1}번 그림 다시 그리기</h2>
+      <div class="render" style="border:1px solid #ddd;border-radius:8px;padding:10px;margin:8px 0;max-width:480px">${res.svg}</div>
+      ${res.note ? `<p class="mute">${esc(res.note)}</p>` : ''}
+      <div class="row"><button class="btn" id="rdApply">이 그림으로 바꾸기</button><button class="btn gray" id="rdAgain">한 번 더 그리기</button><button class="btn gray" id="rdCancel">취소</button></div>`, true);
+    document.getElementById('rdApply').onclick = () => { const p = ex.probs[i]; figKeepUndo(ex, i); p.svg = res.svg; p.img = false; save(); closeModal(); render(); };
+    document.getElementById('rdAgain').onclick = () => { closeModal(); figRedrawClick(i); };
+    document.getElementById('rdCancel').onclick = closeModal;
+  });
+}
+function figButtonsHTML(ex, i){
+  const p = ex.probs[i] || {}, has = p.img || p.svg, dis = BUSY ? ' disabled' : '';
+  return (has ? (aiReady() ? `<button class="btn red sm" data-nofig="${i}"${dis} title="그림에만 있던 조건을 문장으로 옮겨 그림 없이도 풀리게 고칩니다">그림 빼기</button>` : `<button class="btn red sm" data-nofig0="${i}">그림 빼기</button>`) : '')
+    + (aiReady() && (has || p.statement) ? `<button class="btn gray sm" data-redraw="${i}"${dis}>${has ? '그림 다시 그리기' : '그림 그리기'}</button>` : '')
+    + (p.figUndo ? `<button class="btn gray sm" data-figundo="${i}">그림 되돌리기</button>` : '');
+}
+function bindFig(){
+  const ex = exam();
+  document.querySelectorAll('[data-nofig]').forEach(b => b.onclick = () => figNoFigClick(+b.dataset.nofig));
+  document.querySelectorAll('[data-nofig0]').forEach(b => b.onclick = () => figApplyNoFig(ex, +b.dataset.nofig0, null));
+  document.querySelectorAll('[data-redraw]').forEach(b => b.onclick = () => figRedrawClick(+b.dataset.redraw));
+  document.querySelectorAll('[data-figundo]').forEach(b => b.onclick = () => figUndo(ex, +b.dataset.figundo));
+}
+
 let TAB = 'auto';
 function render(){
   if (CLOUD_MODE && !CLOUD.on){ if (window.firebase && firebase.auth) showLogin(''); return; }
@@ -2295,7 +2429,7 @@ function probCard(ex, i){
   const rub = (p.rubric || []).map(r => `${r.desc} | ${r.points}`).join('\n');
   const vf = p.verify ? (!verifyBad(ex, i) ? `<span class="pill p-ok" title="${esc(p.verify.note || '')}">검산 ${AE(ex) ? '통과' : '일치'}</span>` : AE(ex) ? `<span class="pill p-bad" title="${esc(p.verify.note || '')}">검산 문제 있음: ${esc(p.verify.note || '')}</span>` : `<span class="pill p-bad" title="${esc(p.verify.note || '')}">검산 불일치: AI 재풀이 ${esc(p.verify.answer)}</span>`) : '';
   return `<div class="prob" data-pi="${i}"><div class="ph"><span class="num">${i+1}번</span><span class="pill p-ok" style="background:var(--navy-soft);color:var(--navy)">${pointLabel(ex, i)}</span>${p.area ? `<span class="mute">${esc(p.area)}</span>` : ''}${p.src ? `<span class="mute">${esc(p.src)}</span>` : ''}${vf}
-    <span style="margin-left:auto"></span>${aiReady() ? `<button class="btn gray sm" data-regen="${i}"${BUSY ? ' disabled' : ''}>이 문항 다시 출제</button>` : ''}${p.img && aiReady() ? `<button class="btn gray sm" data-fill="${i}"${BUSY ? ' disabled' : ''}>AI로 정답·풀이 채우기</button>` : ''}<button class="btn gray sm" data-crop="${i}">교재에서 넣기</button>${p.img || p.svg ? `<button class="btn red sm" data-nofig="${i}">그림 빼기</button>` : ''}</div>
+    <span style="margin-left:auto"></span>${aiReady() ? `<button class="btn gray sm" data-regen="${i}"${BUSY ? ' disabled' : ''}>이 문항 다시 출제</button>` : ''}${p.img && aiReady() ? `<button class="btn gray sm" data-fill="${i}"${BUSY ? ' disabled' : ''}>AI로 정답·풀이 채우기</button>` : ''}<button class="btn gray sm" data-crop="${i}">교재에서 넣기</button>${figButtonsHTML(ex, i)}</div>
     <div class="two"><div><label>문제 ${p.img ? '(교재 그림이 문제로 쓰임 · 글을 쓰면 그림 위에 같이 나옴)' : ''}</label><textarea rows="4" data-f="statement" data-i="${i}">${esc(p.statement || '')}</textarea>
       ${AE(ex) ? `<div class="row"><label>정답 (구하는 값, 증명이면 비움) <input data-f="answer" data-i="${i}" value="${esc(ex.answers[i])}" style="width:200px"></label><label>배점 <input class="s" data-f="essPts" data-i="${i}" value="${ep || ''}" inputmode="decimal"></label>
       <label>유형 <select data-f="type" data-i="${i}">${['', '증명', '구하기', '작도'].map(t => `<option${(p.type || '') === t ? ' selected' : ''}>${t}</option>`).join('')}</select></label></div>`
@@ -2396,7 +2530,7 @@ function applyGenerated(ex, list, onlyIdx){
     if (i < 0 || i >= ex.n) return;
     const p = ex.probs[i] = { ...(ex.probs[i] || {}) };
     p.statement = g.statement || ''; p.solution = g.solution || ''; p.check = g.check || ''; p.area = g.area || '';
-    p.svg = cleanSVG(g.figure_svg || ''); p.img = false; delete p.verify; p.src = 'AI 출제';
+    p.svg = cleanSVG(g.figure_svg || ''); p.img = false; delete p.verify; delete p.figUndo; p.src = 'AI 출제';
     p.rubric = Number(ex.essPts[i]) > 0 ? (g.rubric || []).map(r => ({ desc: String(r.desc || ''), points: Number(r.points) || 0 })) : [];
     if (AE(ex)) ex.answers[i] = String(g.answer ?? '').slice(0, 80);
     else if (g.answer != null && /^\d+$/.test(String(g.answer)) && +g.answer <= 999) ex.answers[i] = String(+g.answer);
@@ -2674,7 +2808,7 @@ function bindProbs(){
     if (el.dataset.f === 'essPts' || el.dataset.f === 'ansPts') el.onchange = () => render();
   });
   document.querySelectorAll('[data-crop]').forEach(b => b.onclick = () => openCropper(+b.dataset.crop));
-  document.querySelectorAll('[data-nofig]').forEach(b => b.onclick = async () => { const i = +b.dataset.nofig, p = ex.probs[i]; p.img = false; p.svg = ''; await DB.del(probImgKey(ex.id, i)); delete IMG[probImgKey(ex.id, i)]; save(); render(); });
+  bindFig();
   document.querySelectorAll('[data-regen]').forEach(b => b.onclick = () => { const i = +b.dataset.regen; saveGenOpt();
     runBusy(`${i+1}번 다시 출제 중…`, async () => { const { opt, imgs } = await genOptions();
       const one = { ...ex, n: 1, answers: [''], ansPts: [ex.ansPts[i]], essPts: [ex.essPts[i]], probs: [{}] };
