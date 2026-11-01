@@ -267,7 +267,9 @@ function showLogin(msg){
   document.getElementById('main').innerHTML = loginView(msg);
   document.getElementById('gLogin').onclick = async () => { const pv = new firebase.auth.GoogleAuthProvider(); pv.setCustomParameters({ prompt: 'select_account' });
     try { await firebase.auth().signInWithPopup(pv); }
-    catch(e){ if (/popup-blocked|operation-not-supported/i.test(e.code || '')){ try { await firebase.auth().signInWithRedirect(pv); return; } catch(e2){ e = e2; } }
+    catch(e){
+      if (/popup-blocked/i.test(e.code || '')) return showLogin('로그인 창(팝업)이 막혔습니다. 단추를 한 번 더 눌러 주세요. 계속 막히면 브라우저 설정에서 팝업 차단을 꺼 주세요(아이폰 Safari: 설정 → 앱 → Safari → 팝업 차단 끔).');
+      if (/operation-not-supported|web-storage-unsupported/i.test(e.code || '')) return showLogin('이 화면(다른 앱 안의 브라우저 등)에서는 Google 로그인 창을 열 수 없습니다. Safari나 Chrome을 직접 열고 주소창에 dkheo3617.github.io/kmo-tester 를 입력해 열어 주세요.');
       if (/popup-closed|cancelled-popup/i.test(e.code || '')) return;
       showLogin(e.code === 'auth/unauthorized-domain' ? '이 주소가 Firebase 승인 도메인에 없습니다(승인된 도메인에 추가 필요)' : (e.message || String(e))); } };
 }
