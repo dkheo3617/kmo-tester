@@ -1030,14 +1030,14 @@ async function paperHTML(ex, kind, list){
   const head = stu => `<header class="hd"><div class="sub">${esc(ex.course)}  |  ${esc(ex.testType || '')}${ex.testType ? '  |  ' : ''}${esc(ex.area || 'KMO')}</div>
     <div class="title">${esc(ex.name)}${solved ? ' 해설' : ''}</div>
     <div class="meta">${AE(ex) ? `서술형 ${ex.n}문항 · ${totalOf(ex)}점` : `총 ${ex.n}문항${essQs(ex).length ? ` (서술형 ${essQs(ex).length})` : ''} · ${totalOf(ex)}점 · 답은 0~999 정수${solved ? '' : ' · 정답은 OMR 답안지에 마킹'}`}</div>
-    <table class="info"><tr><th>날짜</th><td>${esc(ex.date)}</td><th>이름</th><td class="nm">${stu ? `<b>${esc(stu.name)}</b> <span style="color:#777">${esc(stu.no)}번</span>` : ''}</td><th>점수</th><td>/ ${totalOf(ex)}</td></tr></table></header>`;
+    <table class="info"><tr><th>날짜</th><td>${esc(ex.date)}</td><th>이름</th><td class="nm">${stu ? `<b>${esc(stu.name)}</b> <span style="color:#777">${esc(stu.no)}번</span>` : ''}</td><th>점수</th><td class="sc">/ ${totalOf(ex)}</td></tr></table></header>`;
   const css = `@page{size:A4;margin:14mm 14mm 16mm}
   @media screen{html{background:#e9ecf1}body{max-width:182mm;margin:10mm auto;padding:12mm 14mm;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.15)}}
   body{margin:0;font-family:'Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic',sans-serif;color:#111;font-size:11pt;line-height:1.75}
   .hd{border-bottom:0.5mm solid #1f3a68;padding-bottom:3mm;margin-bottom:5mm}
   .sub{color:#1f3a68;font-weight:700;font-size:9pt}.title{font-size:20pt;font-weight:800;letter-spacing:-0.3pt}.meta{color:#666;font-size:9pt}
   .info{border-collapse:collapse;margin-top:3mm;width:100%;font-size:9.5pt}.info th{background:#eef1f7;border:0.3mm solid #999;padding:1.5mm 3mm;width:16mm}
-  .info td{border:0.3mm solid #999;padding:1.5mm 3mm}.info td.nm{width:45mm}
+  .info th,.info td{text-align:center}.info td{border:0.3mm solid #999;padding:1.5mm 3mm}.info td.sc{text-align:right}.info td.nm{width:45mm}
   section.q{break-inside:avoid;margin:0 0 6mm}
   section.q.full{break-after:page}section.q.full:last-child{break-after:auto}
   section.q.half:nth-of-type(2n){break-after:page}
