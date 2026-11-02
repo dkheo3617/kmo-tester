@@ -389,13 +389,18 @@ async function callSample(content, { system = '' } = {}){
   catch(e){ throw new Error(SAMPLE_ERR[e && e.code] || (e && e.message) || 'AI 호출 실패'); }
 }
 async function callAI(content, { max = 16000, system = '' } = {}){
+  if (CANCELLED) throw cancelErr();
   if (SAMPLE) return callSample(content, { system });
   if (IN_ARTIFACT) throw new Error('이 화면에서는 AI를 아직 쓸 수 없습니다. 잠시 뒤 다시 눌러 보세요');
   if (!aiReady()) throw new Error('「설정」에서 Anthropic API 키를 먼저 넣어 주세요');
-  const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST',
+  AICTRL = new AbortController();
+  let r;
+  try { r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: AICTRL.signal,
     headers: { 'x-api-key': S.settings.apiKey.trim(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
-    body: JSON.stringify({ model: S.settings.model || MODELS[0], max_tokens: max, system: system || undefined, messages: [{ role: 'user', content }] }) });
+    body: JSON.stringify({ model: S.settings.model || MODELS[0], max_tokens: max, system: system || undefined, messages: [{ role: 'user', content }] }) }); }
+  catch(e){ if (CANCELLED || (e && e.name === 'AbortError')) throw cancelErr(); throw e; }
   const j = await r.json().catch(() => ({}));
+  if (CANCELLED) throw cancelErr();
   if (!r.ok) throw new Error((j.error && j.error.message) || `AI 호출 실패 (${r.status})`);
   const text = (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
   return text;
@@ -836,7 +841,7 @@ async function gradeEssays(){
       if (!(r.essManual && r.essManual[i])) r.ess[i] = j.total;
       save();
     } catch(e){ err++; LOG.push({ t: 'bad', m: `${no}번 ${i+1}번 서술 AI 채점 오류: ${esc(e.message || e)}` }); if (/키|key|401|403/i.test(String(e.message))) break; }
-    done++; BUSY = `서술형 AI 채점 ${done}/${todo.length}`; render();
+    done++; BUSY = `서술형 AI 채점 ${done}/${todo.length}`; render(); if (CANCELLED) break;
   }
   BUSY = ''; LOG.push({ t: err ? 'warn' : 'ok', m: `서술형 AI 채점 끝 (${done - err}칸${err ? `, 오류 ${err}칸` : ''}). 확신이 낮은 칸은 결과에서 테두리로 표시됩니다.` }); render();
 }
@@ -1177,7 +1182,7 @@ async function indexBook(book, from = 1, to = book.pages){
   for (let p = Math.max(1, from); p <= Math.min(book.pages, to); p++) if (!book.index.pages[p]) todo.push(p);
   for (let k = 0; k < todo.length; k += 4){
     const ps = todo.slice(k, k + 4);
-    BUSY = `교재 분석: ${book.name} ${ps[0]}~${ps[ps.length-1]}쪽 (${k}/${todo.length}쪽 끝)`; render();
+    if (CANCELLED) throw cancelErr(); BUSY = `교재 분석: ${book.name} ${ps[0]}~${ps[ps.length-1]}쪽 (${k}/${todo.length}쪽 끝)`; render();
     const prev = book.index.pages[ps[0] - 1], unit = prev ? prev.unit : '';
     const content = [];
     for (const p of ps){ const c = await pageCanvas(book.id, p, 1400); content.push({ type: 'text', text: `[${p}쪽]` }, imgPart(c.toDataURL('image/jpeg', 0.75))); }
@@ -1210,7 +1215,7 @@ async function indexSol(book, from, to){
   const si = book.solIndex = book.solIndex || { pages: {} }, todo = [];
   for (let p = Math.max(1, from); p <= Math.min(book.sol.pages, to); p++) if (!si.pages[p]) todo.push(p);
   for (let k = 0; k < todo.length; k += 4){
-    const ps = todo.slice(k, k + 4); BUSY = `해설 분석: ${book.sol.name} ${ps[0]}~${ps[ps.length-1]}쪽`; render();
+    const ps = todo.slice(k, k + 4); if (CANCELLED) throw cancelErr(); BUSY = `해설 분석: ${book.sol.name} ${ps[0]}~${ps[ps.length-1]}쪽`; render();
     const content = [];
     for (const p of ps){ const c = await pageCanvas(book.sol.id, p, 1300); content.push({ type: 'text', text: `[${p}쪽]` }, imgPart(c.toDataURL('image/jpeg', 0.72))); }
     content.push({ type: 'text', text: `다음은 수학 교재(${book.name})의 해설(정답·풀이) 쪽 그림입니다. 쪽마다 그 쪽에 풀이가 실린 문제 번호를 교재에 적힌 그대로 알려 주세요(풀이가 앞 쪽에서 이어지면 그 번호도 포함). 단원 이름이 보이면 unit 에.
@@ -1375,7 +1380,7 @@ async function genFromBook(book, ex, picks, modes, note, only){
   for (let k = 0; k < pagesList.length; k += 2) groups.push(pagesList.slice(k, k + 2));
   let done = 0; const total = picks.filter((p, i) => p && (!only || only.includes(i))).length;
   for (const g of groups){
-    BUSY = `AI가 문제를 만드는 중… ${done}/${total}문항 (교재 ${g.join('·')}쪽)`; render();
+    if (CANCELLED) throw cancelErr(); BUSY = `AI가 문제를 만드는 중… ${done}/${total}문항 (교재 ${g.join('·')}쪽)`; render();
     const content = [];
     for (const p of g){ const c = await pageCanvas(book.id, p, 1600); content.push({ type: 'text', text: `[교재 ${p}쪽]` }, imgPart(c.toDataURL('image/jpeg', 0.8))); }
     const solMap = book.sol ? await solPagesFor(book, picks.map((pk, i) => g.includes(pk && pk.page) && (!only || only.includes(i)) ? pk : null)) : {};
@@ -1502,7 +1507,7 @@ async function uploadExam(o, paperFile, solFile){
   if (aiReady()){
     try {
       if (ae){
-        for (let i = 0; i < n; i++){ BUSY = `AI가 ${i+1}/${n}번 문제를 읽고 채점 기준을 만드는 중…`; render();
+        for (let i = 0; i < n; i++){ if (CANCELLED) throw cancelErr(); BUSY = `AI가 ${i+1}/${n}번 문제를 읽고 채점 기준을 만드는 중…`; render();
           const content = [{ type: 'text', text: `${i+1}번 문제 쪽:` }, imgPart(imgs[i])];
           sol.forEach((d, k) => content.push({ type: 'text', text: `[해설 ${k+1}쪽]` }, imgPart(d)));
           content.push({ type: 'text', text: `위 그림은 학원에서 만든 서술형 시험지의 ${i+1}번 문제 쪽입니다.${sol.length ? ' 함께 보낸 해설 쪽에서 이 문제의 풀이·채점기준을 찾아 그대로 따르세요.' : ''}
@@ -1732,7 +1737,7 @@ function bindAuto(){
     upd('[data-pcls]', (x, el) => x.course = el.value); upd('[data-ptype]', (x, el) => x.testType = el.value); upd('[data-pkind]', (x, el) => { x.kind = el.value; x.n = x.kind === '1' ? x.pages : (x.pages >= 6 ? 20 : 10); });
     if ($('uClear')) $('uClear').onclick = () => { UPLAN = []; PLAN_SKIP = []; render(); };
     if ($('uGo')) $('uGo').onclick = () => runBusy('시험지 올리는 중…', async () => { const todo = UPLAN.filter(x => x.on); let k = 0;
-      for (const x of todo){ k++; BUSY = `시험지 올리는 중… ${k}/${todo.length} (${x.name})`; render();
+      for (const x of todo){ k++; if (CANCELLED) throw cancelErr(); BUSY = `시험지 올리는 중… ${k}/${todo.length} (${x.name})`; render();
         await uploadExam({ kind: x.kind, course: x.course, testType: x.testType, date: x.date, title: x.name, total: 100, n: x.n }, x.paper, x.sol); }
       UPLAN = []; PLAN_SKIP = []; TAB = 'list'; setTimeout(() => toastSoft(`${todo.length}개를 올렸습니다`), 50); });
   }
@@ -2088,7 +2093,7 @@ async function bankGen(ex, picks, modes, note, only){   // 숫자만 변경·형
   const idx = picks.map((r, i) => i).filter(i => picks[i] && (!only || only.includes(i)));
   const ae = AE(ex); let done = 0;
   for (let k = 0; k < idx.length; k += 3){
-    const grp = idx.slice(k, k + 3); BUSY = `AI가 문제를 만드는 중… ${done}/${idx.length}문항`; render();
+    const grp = idx.slice(k, k + 3); if (CANCELLED) throw cancelErr(); BUSY = `AI가 문제를 만드는 중… ${done}/${idx.length}문항`; render();
     const content = [], figs = {};
     for (const i of grp){ const r = picks[i], a = bankAnswer(r);
       content.push({ type: 'text', text: `[slot ${i+1} 원래 문제 · ${bankSrc(r)}]\n${bankStatement(r)}\n정답: ${a || '(없음)'}\n교재 풀이: ${bankClean(r.해설).slice(0, 1800) || '(그림)'}` });
@@ -2344,6 +2349,7 @@ function bindFig(){
 
 let TAB = 'auto';
 function render(){
+  if (!BUSY) CANCELLED = false;
   if (CLOUD_MODE && !CLOUD.on){ if (window.firebase && firebase.auth) showLogin(''); return; }
   document.getElementById('nav').style.visibility = ''; document.querySelector('.examsel').style.visibility = '';
   const ex = exam();
@@ -2358,7 +2364,12 @@ function render(){
   bind(); bindAuto(); if (TAB === 'make') paintProbs();
   window.scrollTo(0, y);
 }
-const busyLine = () => BUSY ? `<p><span class="busy"></span> ${esc(BUSY)}</p>` : '';
+// 11/2: 오래 걸리는 작업(AI 출제·분석·채점·올리기)은 「취소」 단추로 멈춤 — 지금 AI 요청을 끊고, 다음 단계로 넘어가지 않음
+let CANCELLED = false, AICTRL = null;
+const cancelErr = () => { const e = new Error('취소했습니다'); e.cancelled = true; return e; };
+function cancelBusy(){ CANCELLED = true; try { AICTRL && AICTRL.abort(); } catch(e){} if (BUSY) BUSY = '취소하는 중… (지금 하던 문항까지만)'; render(); }
+window.cancelBusy = cancelBusy;
+const busyLine = () => BUSY ? `<p><span class="busy"></span> ${esc(BUSY)}${/자료를 맞추는|취소하는 중/.test(BUSY) ? '' : ' <button class="btn gray" style="margin-left:8px;padding:3px 12px" onclick="cancelBusy()">취소</button>'}</p>` : '';
 function viewGrade(){
   const ex = exam(), miss = ex.answers.filter(a => String(a ?? '').trim() === '').length, eq = essQs(ex);
   return `<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">채점 — ${esc(ex.name)} <span class="mute" style="font-size:13px;font-weight:500">${esc(ex.date)}</span></h2><button class="btn gray sm" id="toList">← 시험 목록</button></div><div style="height:10px"></div>
@@ -2532,8 +2543,8 @@ document.getElementById('modal').addEventListener('click', e => { if (e.target.i
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 async function runBusy(label, fn){
-  if (BUSY) return; BUSY = label; render();
-  try { await fn(); } catch(e){ console.error(e); toast(e.message || String(e)); }
+  if (BUSY) return; CANCELLED = false; BUSY = label; render();
+  try { await fn(); } catch(e){ if (CANCELLED || e.cancelled) toast('취소했습니다'); else { console.error(e); toast(e.message || String(e)); } }
   BUSY = ''; render();
 }
 function applyGenerated(ex, list, onlyIdx){
