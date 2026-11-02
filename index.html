@@ -643,7 +643,12 @@ function readCanvas(cv, nQ = 20){
   const darkIn = (x0, y0, x1, y1, step = 0.5, th = 120) => { let n = 0, d = 0;
     for (let y = y0; y <= y1; y += step) for (let x = x0; x <= x1; x += step){ const [u, v] = T(x, y); const ui = u|0, vi = v|0;
       if (ui < 0 || vi < 0 || ui >= W || vi >= H) continue; n++; if (gray[vi*W+ui] < th) d++; } return n ? d/n : 0; };
-  const sq = (x, y) => darkIn(x + 0.8, y + 0.8, x + 3.2, y + 3.2, 0.3);
+  // 11/2: 표시 네모가 회색으로 찍혀도 읽도록, 둘레 종이 밝기보다 45 이상 어두우면 칠한 것으로 봄 (예전: 120보다 어두운 점만)
+  const paperAt = (x0, y0, x1, y1) => { const v = [];
+    for (let y = y0; y <= y1; y += 0.5) for (let x = x0; x <= x1; x += 0.5){ const [u, w] = T(x, y); const ui = u|0, vi = w|0;
+      if (ui >= 0 && vi >= 0 && ui < W && vi < H) v.push(gray[vi*W+ui]); }
+    v.sort((a, b) => a-b); return v.length ? v[Math.floor(v.length*0.85)] : 255; };
+  const sq = (x, y) => darkIn(x + 0.8, y + 0.8, x + 3.2, y + 3.2, 0.3, Math.min(200, paperAt(x - 3, y - 3, x + 7, y + 7) - 45));
   const c0 = sq(CODE[0][0], CODE[0][1]), c0r = sq(210 - CODE[0][0] - 4, 297 - CODE[0][1] - 4);   // 왼쪽 아래 첫 네모가 뒤집혀 오른쪽 위에 있는지
   const flip = c0 > 0.6 ? false : c0r > 0.6 ? true : darkIn(192-57, 297-22, 192, 297-13) > darkIn(18, 13, 75, 22) + 0.02;
   if (flip){ q = [q[2], q[3], q[0], q[1]]; T = homography(mm, q.map(p => [p.x, p.y])); }
@@ -670,16 +675,20 @@ function readCanvas(cv, nQ = 20){
   const fills = {}, all = [];
   for (const g of groups){ const P = paperLevel(g.cols); fills[g.key] = g.cols.map(col => col.map(([x, y]) => { const f = fill(x, y, P); all.push(f); return f; })); }
   const sorted = all.slice().sort((a, b) => a-b), base = sorted[Math.floor(sorted.length*(essayPage || paperPage ? 0.5 : 0.4))];
-  function decide(col){
-    const adj = col.map(f => Math.max(0, f - base)), ord = adj.map((v, i) => i).sort((a, b) => adj[b]-adj[a]);
-    const marked = ord.filter(i => adj[i] >= 0.20), faint = ord.filter(i => adj[i] >= 0.09 && adj[i] < 0.20);
+  // 11/2: 숫자마다 인쇄된 글자 잉크가 달라(6·8·9가 진함) 빈 칸 기준을 숫자별로 잡음 — 답 칸 전체에서 같은 숫자 칸들의 중앙값
+  const ansCols = Object.keys(fills).filter(k => k !== 'id').flatMap(k => fills[k]);
+  const dmed = ansCols.length >= 6 ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => { const v = ansCols.map(c => c[d]).filter(x => x != null).sort((a, b) => a-b); return v.length ? v[Math.floor(v.length/2)] : base; }) : null;
+  function decide(col, perDigit){
+    const adj = col.map((f, i) => Math.max(0, f - (perDigit && dmed ? dmed[i] : base))), ord = adj.map((v, i) => i).sort((a, b) => adj[b]-adj[a]);
+    const FT = perDigit && dmed ? 0.12 : 0.09;
+    const marked = ord.filter(i => adj[i] >= 0.20), faint = ord.filter(i => adj[i] >= FT && adj[i] < 0.20);
     if (!marked.length){ if (faint.length) return { d: faint[0], fl: '흐린 마킹' }; return { d: null }; }
     if (marked.length === 1) return { d: marked[0], fl: faint.length ? '다른 칸에 옅은 흔적' : '' };
     if (adj[marked[1]] < adj[marked[0]] * 0.5) return { d: marked[0], fl: '지운 흔적' };
     return { d: '?', fl: '중복 마킹' };
   }
-  function assemble(cols, names){
-    const ds = cols.map(decide), fl = [];
+  function assemble(cols, names, perDigit){
+    const ds = cols.map(c => decide(c, perDigit)), fl = [];
     if (ds.every(x => x.d === null)) return { v: null, fl };
     const first = ds.findIndex(x => x.d !== null);
     let s = '';
@@ -703,6 +712,7 @@ function readCanvas(cv, nQ = 20){
     return c.toDataURL('image/jpeg', qual);
   }
   const id = assemble(fills.id, ['번호 십의 자리', '번호 일의 자리']);
+  id.fl = id.fl.filter(x => !/다른 칸에 옅은 흔적/.test(x));   // 11/2: 학생 번호는 진하게 칠한 칸이 하나면 옆 칸의 옅은 흔적은 무시
   const nameCrop = crop(17, 31, 139, 44, 360), idCrop = omrNew || essNew ? crop(126, 14, 194, 31, 220) : crop(155, 15, 178, 74, 90);
   if (paperPage) return { paperPage: true, q: pageIdx, id: id.v, idFlags: id.fl, nameCrop, idCrop: crop(126, 14, 194, 32, 220), pageCrop: () => crop(PAPER.x0 - 3, PAPER.y0 - 3, PAPER.x1 + 3, PAPER.y1 + 2, 1300, 0.8) };
   if (essayPage){
@@ -710,7 +720,7 @@ function readCanvas(cv, nQ = 20){
     return { essayPage: true, pageIdx, id: id.v, idFlags: id.fl, nameCrop, idCrop: essNew ? crop(126, 14, 194, 32, 220) : idCrop, boxCrop };
   }
   const ans = [], flags = [];
-  for (let qn = 1; qn <= nQ; qn++){ const a = assemble(fills[String(qn)], ['백의 자리', '십의 자리', '일의 자리']); ans.push(a.v); flags.push(a.fl); }
+  for (let qn = 1; qn <= nQ; qn++){ const a = assemble(fills[String(qn)], ['백의 자리', '십의 자리', '일의 자리'], true); ans.push(a.v); flags.push(a.fl); }
   const blockCrop = qn => { const cols = LAYOUT.answers[String(qn)], xs = cols.flat().map(c => c[0]), ys = cols.flat().map(c => c[1]);
     return crop(Math.min(...xs)-3.6, Math.min(...ys)-12.5, Math.max(...xs)+3.6, Math.max(...ys)+3.2, 150); };
   return { id: id.v, idFlags: id.fl, ans, flags, blockCrop, nameCrop, idCrop };
