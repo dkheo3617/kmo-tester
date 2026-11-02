@@ -978,7 +978,7 @@ async function paperScanHTML(ex, list = 1){
 }
 
 // 채점 결과지: 반 요약 + 학생마다 점수표 1쪽 + 스캔 쪽(문제 번호에 ○ 만점 / △ 감점, 감점 줄 물결 밑줄·첨삭, 오른쪽 아래 점수)
-async function gradedHTML(ex, nos){
+async function gradedHTML(ex, nos, summaryOnly){
   const R = res(), PEN = "'Nanum Pen Script','Nanum Brush Script','Gaegu','Apple SD Gothic Neo',cursive", RED = '#d6283c';
   const EQ = essQs(ex), all = Object.keys(R).sort(), rows = all.map(no => ({ no, g: gradeStudent(R[no], ex) }));
   const avgQ = EQ.map(i => { const v = rows.map(x => x.g.cells[i].es).filter(v => v != null); return v.length ? (sum(v) / v.length).toFixed(1) : '-'; });
@@ -987,22 +987,28 @@ async function gradedHTML(ex, nos){
   const head = (t, sub) => `<div style="color:#1f3a68;font-weight:700;font-size:9pt">${esc(ex.course)}  |  ${esc(ex.date)}</div><div style="font-size:18pt;font-weight:800;margin:1mm 0 4mm">${esc(t)}</div>${sub ? `<div style="color:#666;font-size:9.5pt;margin-bottom:4mm">${sub}</div>` : ''}`;
   const pages = [];
   if (nos.length > 1) pages.push(`<div class="pg">${head(ex.name + ' 채점 결과', `응시 ${rows.length}명 · 평균 ${avg}점 · 만점 ${totalOf(ex)}점`)}
-    <table style="border-collapse:collapse;width:100%"><tr><th style="${th}">번호</th><th style="${th}">이름</th>${EQ.map(i => `<th style="${th}">${i+1}번<br><span style="font-weight:400">/${ex.essPts[i]}</span></th>`).join('')}<th style="${th}">총점</th></tr>
-    ${rows.map(({ no, g }) => `<tr><td style="${td}">${esc(no)}</td><td style="${td}">${esc(nameOf(no))}</td>${EQ.map(i => `<td style="${td}">${g.cells[i].es ?? '–'}</td>`).join('')}<td style="${td}"><b>${g.total}</b>${g.essPend ? '*' : ''}</td></tr>`).join('')}
-    <tr><td style="${td}" colspan="2"><b>평균</b></td>${avgQ.map(a => `<td style="${td}">${a}</td>`).join('')}<td style="${td}"><b>${avg}</b></td></tr></table>
+    <table style="border-collapse:collapse;width:100%"><tr><th style="${th}">번호</th><th style="${th}">이름</th>${AE(ex) ? '' : `<th style="${th}">정답<br><span style="font-weight:400">/${sum(ex.ansPts)}</span></th>`}${EQ.map(i => `<th style="${th}">${i+1}번 서술<br><span style="font-weight:400">/${ex.essPts[i]}</span></th>`).join('')}<th style="${th}">총점</th></tr>
+    ${rows.map(({ no, g }) => `<tr><td style="${td}">${esc(no)}</td><td style="${td}">${esc(nameOf(no))}</td>${AE(ex) ? '' : `<td style="${td}">${g.ansTotal}</td>`}${EQ.map(i => `<td style="${td}">${g.cells[i].es ?? '–'}</td>`).join('')}<td style="${td}"><b>${g.total}</b>${g.essPend ? '*' : ''}</td></tr>`).join('')}
+    <tr><td style="${td}" colspan="2"><b>평균</b></td>${AE(ex) ? '' : `<td style="${td}">${tot.length ? (sum(rows.map(x => x.g.ansTotal)) / tot.length).toFixed(1) : '-'}</td>`}${avgQ.map(a => `<td style="${td}">${a}</td>`).join('')}<td style="${td}"><b>${avg}</b></td></tr></table>
     ${rows.some(x => x.g.essPend) ? '<p style="font-size:9pt;color:#666">* 점수가 다 들어가지 않은 학생</p>' : ''}</div>`);
-  for (const no of nos){
-    const r = R[no], g = gradeStudent(r, ex);
+  for (const no of (summaryOnly ? [] : nos)){
+    const r = R[no], g = gradeStudent(r, ex), essBlk = [];
     pages.push(`<div class="pg">${head(`${nameOf(no) || no + '번'}  ${g.total} / ${totalOf(ex)}`, `${esc(ex.name)} · ${esc(no)}번`)}
-      <table style="border-collapse:collapse;width:100%"><tr><th style="${th}">문항</th><th style="${th}">점수</th><th style="${th};text-align:left">채점 내용</th></tr>
+      ${AE(ex) ? '' : `<div style="font-size:9.5pt;color:#444;margin:-2mm 0 3mm">정답 ${g.ansTotal} / ${sum(ex.ansPts)}점${EQ.length ? ` · 서술 ${g.essTotal} / ${sum(ex.essPts)}점` : ''} · 맞힌 문항 ${g.cells.filter(c => c.st === 'ok').length} / ${ex.n}</div>
+      <table style="border-collapse:collapse;width:100%;margin-bottom:4mm"><tr><th style="${th}">문항</th><th style="${th}">정답</th><th style="${th}">학생 답</th><th style="${th}">채점</th><th style="${th}">점수</th>${EQ.length ? `<th style="${th}">서술</th>` : ''}</tr>
+      ${g.cells.map((c, i) => { const mk = c.st === 'ok' ? '<b style="color:#1a7f37">○</b>' : c.st === 'bad' ? `<b style="color:${RED}">✕</b>` : c.st === 'pend' ? '<span style="color:#b7791f">확인</span>' : '<span style="color:#999">무응답</span>';
+        return `<tr><td style="${td}">${i+1}</td><td style="${td}">${esc(ex.answers[i] ?? '')}</td><td style="${td}">${c.read == null || c.read === '' ? '–' : esc(c.read)}</td><td style="${td}">${mk}</td><td style="${td}">${c.st === 'ok' ? (Number(ex.ansPts[i]) || 0) : 0} / ${Number(ex.ansPts[i]) || 0}</td>${EQ.length ? `<td style="${td}">${c.ep ? `${c.es ?? '–'} / ${c.ep}` : ''}</td>` : ''}</tr>`; }).join('')}</table>`}
+      ${EQ.length ? `<table style="border-collapse:collapse;width:100%"><tr><th style="${th}">${AE(ex) ? '문항' : '서술형'}</th><th style="${th}">점수</th><th style="${th};text-align:left">채점 내용</th></tr>` : ''}
       ${EQ.map(i => { const c = g.cells[i], ai = c.ai || {}, rub = (ex.probs[i] || {}).rubric || [];
         const crit = (ai.criteria || []).map(k => `${esc((rub[k.index-1] || {}).desc || ('기준 ' + k.index))} <b>${esc(k.awarded)}${rub[k.index-1] ? '/' + esc(rub[k.index-1].points) : ''}</b>${k.reason ? ` — ${esc(k.reason)}` : ''}`).join('<br>');
-        return `<tr><td style="${td}">${i+1}번</td><td style="${td}"><b>${c.es ?? '–'}</b> / ${ex.essPts[i]}</td><td style="${td};text-align:left;white-space:normal;font-size:9pt">${ai.comment ? `<div style="margin-bottom:1mm">${esc(ai.comment)}</div>` : ''}<span style="color:#555">${crit}</span>${r.essManual && r.essManual[i] ? '<div style="color:#888">(선생님이 점수 입력)</div>' : ''}</td></tr>`; }).join('')}</table></div>`);
+        return `<tr><td style="${td}">${i+1}번</td><td style="${td}"><b>${c.es ?? '–'}</b> / ${ex.essPts[i]}</td><td style="${td};text-align:left;white-space:normal;font-size:9pt">${ai.comment ? `<div style="margin-bottom:1mm">${esc(ai.comment)}</div>` : ''}<span style="color:#555">${crit}</span>${r.essManual && r.essManual[i] ? '<div style="color:#888">(선생님이 점수 입력)</div>' : ''}</td></tr>`; }).join('')}${EQ.length ? '</table>' : ''}</div>`);
     for (const i of EQ){
       const img = await getImg(imgKey(ex.id, no, i)); if (!img) continue;
       const c = g.cells[i], full = c.es != null && Number(c.es) >= Number(ex.essPts[i]), ai = c.ai || {};
       // 스캔 쪽 그림 = 시험지 (15,51)~(195,281)mm, 180×230mm → 종이 위에 같은 크기로 놓음
-      const W = 180, H = 230, ov = [];
+      let W = 180, H = 230; const ov = [];
+      if (!AE(ex)){ const sz = await new Promise(res => { const im = new Image(); im.onload = () => res([im.naturalWidth, im.naturalHeight]); im.onerror = () => res([180, 100]); im.src = img; });
+        H = Math.round(180 * sz[1] / sz[0]); if (H > 240){ W = Math.round(W * 240 / H); H = 240; } }
       if (c.es != null){
         ov.push(full ? `<svg style="position:absolute;left:0mm;top:-3mm;width:30mm;height:22mm" viewBox="0 0 30 22"><ellipse cx="15" cy="11" rx="12.5" ry="9" fill="none" stroke="rgba(232,52,84,.45)" stroke-width="2.6"/></svg>`
                      : `<svg style="position:absolute;left:0mm;top:-5mm;width:30mm;height:24mm" viewBox="0 0 30 24"><path d="M15 2 L28 22 L2 22 Z" fill="none" stroke="rgba(232,52,84,.45)" stroke-width="2.6" stroke-linejoin="round"/></svg>`);
@@ -1013,12 +1019,68 @@ async function gradedHTML(ex, nos){
           ov.push(`<svg style="position:absolute;left:${L}mm;top:${T - 0.5}mm;width:${Wd}mm;height:3mm;overflow:visible" viewBox="0 0 ${Wd} 3"><path d="${d}" fill="none" stroke="${RED}" stroke-width="0.45"/></svg>`);
           ov.push(`<div style="position:absolute;left:${Math.min(W - 60, L + Wd + 1)}mm;top:${T - 4}mm;width:58mm;font-family:${PEN};color:${RED};font-size:4.6mm;line-height:1.1">${lab} ${esc(m.note)}</div>`); });
       }
-      pages.push(`<div class="pg sc"><div style="position:relative;width:${W}mm;height:${H}mm;margin:0 auto"><img src="${img}" style="width:${W}mm;height:${H}mm;display:block">${ov.join('')}</div>
-        <div style="text-align:center;color:#999;font-size:8pt;margin-top:2mm">${esc(nameOf(no) || no)} · ${i+1}번</div></div>`);
+      const blk = `<div style="position:relative;width:${W}mm;height:${H}mm;margin:0 auto"><img src="${img}" style="width:${W}mm;height:${H}mm;display:block">${ov.join('')}</div>
+        <div style="text-align:center;color:#999;font-size:8pt;margin:2mm 0 6mm">${esc(nameOf(no) || no)} · ${i+1}번</div>`;
+      if (AE(ex)) pages.push(`<div class="pg sc">${blk}</div>`); else essBlk.push({ blk, h: H + 10 });
+    }
+    // 11/3: OMR+서술형 시험은 서술 칸이 짧아 한 쪽에 들어가는 만큼 모아 찍음
+    for (let k = 0, cur = [], hh = 0; k <= essBlk.length; k++){
+      const b = essBlk[k];
+      if (!b || (hh + b.h > 262 && cur.length)){ if (cur.length) pages.push(`<div class="pg sc">${cur.join('')}</div>`); cur = []; hh = 0; }
+      if (b){ cur.push(b.blk); hh += b.h; }
     }
   }
   return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4;margin:12mm 15mm}body{margin:0;font-family:'Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic',sans-serif;color:#111}
     .pg{break-after:page}.pg:last-child{break-after:auto}.pg.sc{padding-top:8mm}</style></head><body>${pages.join('')}</body></html>`;
+}
+
+
+// 11/3: 채점 결과지를 학생별 PDF 파일로 — 학생마다 PDF 하나, 여러 명이면 반 요약과 함께 zip 하나로 내려받기
+const LIBS = { jspdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', h2c: 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', zip: 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js' };
+const libLoaded = {};
+function loadLib(k){
+  if (!libLoaded[k]) libLoaded[k] = new Promise((ok, bad) => { const sc = document.createElement('script'); sc.src = LIBS[k]; sc.onload = ok;
+    sc.onerror = () => { libLoaded[k] = null; bad(new Error('PDF 만들기 도구를 받지 못했습니다(인터넷 연결 확인). 대신 「결과지」 인쇄 창에서 PDF로 저장해 주세요')); }; document.head.appendChild(sc); });
+  return libLoaded[k];
+}
+const safeName = t => String(t || '').replace(/[\\/:*?"<>|]/g, '_').trim();
+async function htmlToPDF(html){
+  await loadLib('jspdf'); await loadLib('h2c');
+  const fr = document.createElement('iframe');
+  fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:180mm;height:400mm;border:0;background:#fff';
+  document.body.appendChild(fr);
+  try {
+    await new Promise(ok => { fr.onload = ok; fr.srcdoc = html.replace('</head>', '<style>html,body{background:#fff;margin:0}.pg{padding:0 0 4mm}</style></head>'); });
+    const doc = fr.contentDocument; try { await doc.fonts.ready; } catch(e){}
+    await Promise.all([...doc.images].map(im => im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r; })));
+    const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', compress: true }), pages = [...doc.querySelectorAll('.pg')];
+    for (let k = 0; k < pages.length; k++){
+      if (CANCELLED) throw cancelErr();
+      const cv = await window.html2canvas(pages[k], { scale: 2, backgroundColor: '#fff', useCORS: true, logging: false, windowWidth: pages[k].ownerDocument.documentElement.clientWidth });
+      let w = 180, h = w * cv.height / cv.width; if (h > 273){ w = w * 273 / h; h = 273; }
+      if (k) pdf.addPage();
+      pdf.addImage(cv.toDataURL('image/jpeg', 0.85), 'JPEG', (210 - w) / 2, 12, w, h);
+    }
+    return pdf.output('blob');
+  } finally { fr.remove(); }
+}
+async function downloadGraded(ex, nos){
+  const R = res(); nos = (nos || Object.keys(R).sort()).filter(no => R[no]);
+  if (!nos.length) return toast('채점한 학생이 없습니다');
+  const base = safeName(`${ex.date || ''} ${ex.name}`.trim());
+  const fileOf = no => safeName(`${no}_${nameOf(no) || no + '번'}_${base}.pdf`);
+  if (nos.length === 1){ BUSY = `결과지 PDF 만드는 중… (${nameOf(nos[0]) || nos[0]})`; render();
+    const b = await htmlToPDF(await gradedHTML(ex, nos)); await saveFile(fileOf(nos[0]), b); return; }
+  await loadLib('zip'); const zip = new window.JSZip();
+  BUSY = '결과지 PDF 만드는 중… 반 요약'; render();
+  zip.file(safeName(`00_반요약_${base}.pdf`), await htmlToPDF(await gradedHTML(ex, nos, true)));
+  for (let k = 0; k < nos.length; k++){
+    if (CANCELLED) throw cancelErr();
+    BUSY = `결과지 PDF 만드는 중… ${k + 1}/${nos.length} (${nameOf(nos[k]) || nos[k]})`; render();
+    zip.file(fileOf(nos[k]), await htmlToPDF(await gradedHTML(ex, [nos[k]])));
+  }
+  BUSY = '압축하는 중…'; render();
+  await saveFile(safeName(`${base}_학생별 채점결과.zip`), await zip.generateAsync({ type: 'blob' }));
 }
 
 // ------------------------------------------------------------ 시험지·해설지
@@ -2407,16 +2469,16 @@ function viewResult(){
     ${EQ.length && !ae ? `<td>${g.ansTotal}</td><td>${g.essTotal}</td>` : ''}
     ${g.cells.filter((c, i) => !ae).map((c, i) => `<td class="c ${c.st === 'ok' ? 'ok' : c.st === 'pend' ? 'pend' : c.st === 'bad' ? 'bad' : ''}${c.fl.length ? ' flag' : ''}${c.ov ? ' ov' : ''}" data-cell="${esc(no)}|${i}" title="${esc(c.fl.join(', '))}">${c.read == null ? '·' : esc(c.read)}</td>`).join('')}
     ${EQ.map(i => { const c = g.cells[i]; return `<td class="es"><input class="ess" data-ess="${esc(no)}|${i}" value="${c.es ?? ''}" inputmode="decimal" style="width:52px;padding:3px 5px;text-align:center${c.es == null ? ';border-color:var(--warn)' : c.lowConf ? ';border-color:var(--warn);border-width:2px' : ''}" title="${c.ai ? 'AI ' + esc(c.ai.total) + '점 · 확신 ' + Math.round((c.ai.confidence || 0)*100) + '%' : ''}"><button class="eb" data-essv="${esc(no)}|${i}" title="풀이·AI 채점 보기">${c.hasImg ? (c.ai ? '🔍' : '📄') : '·'}</button></td>`; }).join('')}
-    <td><button class="btn gray sm" data-stu="${esc(no)}">보기</button>${ae ? ` <button class="btn gray sm" data-gpdf="${esc(no)}">결과지</button>` : ''}</td></tr>`).join('');
+    <td><button class="btn gray sm" data-stu="${esc(no)}">보기</button> <button class="btn gray sm" data-gpdf="${esc(no)}" title="채점 결과지 보기·인쇄">결과지</button> <button class="btn gray sm" data-gdl="${esc(no)}" title="이 학생 결과지를 PDF 파일로 내려받기">PDF</button></td></tr>`).join('');
   return resultHead() + `<div class="card"><div class="stat"><div><span class="mute">응시</span><b>${G.length}명</b></div><div><span class="mute">평균</span><b>${avg.toFixed(1)}</b></div>
     <div><span class="mute">최고 / 최저</span><b>${Math.max(...scores)} / ${Math.min(...scores)}</b></div>
     ${ae ? '' : `<div><span class="mute">확인 필요</span><b style="color:${pendAll ? 'var(--warn)' : 'inherit'}">${pendAll}칸</b></div><div><span class="mute">흐림·흔적</span><b>${flagAll}칸</b></div>`}
     ${EQ.length ? `<div><span class="mute">${ae ? '점수 입력 남음' : '서술 입력 남음'}</span><b style="color:${essLeft ? 'var(--warn)' : 'inherit'}">${essLeft}칸</b></div><div><span class="mute">AI 확신 낮음</span><b style="color:${low ? 'var(--warn)' : 'inherit'}">${low}칸</b></div>` : ''}</div>
     ${ae ? `<p class="mute" style="margin:10px 0 0">전부 서술형 시험입니다. 파란 칸은 문항 점수(AI 점수 또는 직접 입력)이고, 🔍를 누르면 스캔한 시험지 쪽과 AI 채점 이유를 봅니다. 굵은 노란 테두리는 AI 확신이 낮은 칸입니다.</p>` : `<p class="mute" style="margin:10px 0 0">칸을 누르면 잘라낸 답안 그림을 보고 답을 고칠 수 있습니다. <span class="pill p-warn">노란 칸</span> 판독 불확실(미채점) · 테두리 칸 흐린 마킹·지운 흔적 · <span class="pill p-bad">빨간 칸</span> 오답 · 점선 밑줄은 직접 고친 칸${EQ.length ? ' · 파란 열은 서술형 점수(AI 점수 또는 직접 입력, 🔍로 풀이·채점 이유 보기, 굵은 노란 테두리는 AI 확신 낮음)' : ''}</p>`}
-    ${EQ.length ? `<div class="row" style="margin-top:10px">${todo ? `<button class="btn" id="aiEss"${BUSY || !aiReady() ? ' disabled' : ''}>서술형 AI 채점 (${todo}칸)</button>` : ''}${ae ? `<button class="btn gray" id="gPdfAll">채점 결과지 인쇄 (전체 · ○/△·점수)</button>` : ''}${!aiReady() ? '<span class="mute">「설정」에 API 키를 넣으면 AI 채점을 쓸 수 있습니다.</span>' : ''}${busyLine()}</div>` : ''}</div>
+    ${EQ.length ? `<div class="row" style="margin-top:10px">${todo ? `<button class="btn" id="aiEss"${BUSY || !aiReady() ? ' disabled' : ''}>서술형 AI 채점 (${todo}칸)</button>` : ''}${!aiReady() ? '<span class="mute">「설정」에 API 키를 넣으면 AI 채점을 쓸 수 있습니다.</span>' : ''}${busyLine()}</div>` : ''}</div>
   <div class="card scroll"><table>${head}${rows}
     <tr><td class="l mute" colspan="${EQ.length && !ae ? 6 : 4}">${ae ? '문항 평균' : '정답률 / 서술 평균'}</td>${rate.filter(() => !ae).map(r => `<td class="mute" style="font-size:12px">${r}%</td>`).join('')}${essAvg.map(a => `<td class="mute" style="font-size:12px">${a}</td>`).join('')}<td></td></tr></table></div>
-  <div class="row"><button class="btn" id="csv">엑셀(CSV)로 내려받기</button><button class="btn red" id="clearRes">이 시험 결과 모두 지우기</button></div>`;
+  <div class="row"><button class="btn" id="gZip"${BUSY ? ' disabled' : ''}>학생별 채점 결과지 내려받기 (PDF · zip)</button><button class="btn gray" id="gPdfAll">채점 결과지 인쇄 (전체)</button><button class="btn gray" id="csv">엑셀(CSV)로 내려받기</button><button class="btn red" id="clearRes">이 시험 결과 모두 지우기</button></div>`;
 }
 function viewMake(){
   const ex = exam(), o = ex.genOpt || {};
@@ -2667,6 +2729,8 @@ function bind(){
   document.querySelectorAll('.pOpt').forEach(el => el.onchange = () => { const o = S.settings.printOpt = S.settings.printOpt || { names: true, extra: 0, copies: 1 };
     o[el.dataset.k] = el.type === 'checkbox' ? el.checked : (+el.value || 0); save(); render(); });
   if ($('gPdfAll')) $('gPdfAll').onclick = async () => { const nos = Object.keys(res()).sort(); printHTML(await gradedHTML(exam(), nos)); };
+  if ($('gZip')) $('gZip').onclick = () => runBusy('결과지 PDF 만드는 중…', () => downloadGraded(exam()));
+  document.querySelectorAll('[data-gdl]').forEach(b => b.onclick = () => runBusy('결과지 PDF 만드는 중…', () => downloadGraded(exam(), [b.dataset.gdl])));
   document.querySelectorAll('[data-gpdf]').forEach(b => b.onclick = async () => printHTML(await gradedHTML(exam(), [b.dataset.gpdf])));
   if ($('lCls')){ $('lCls').onchange = () => { S.settings.listCls = $('lCls').value; save(); render(); };
     const pick = id => { S.current = id; save(); return exam(); };
