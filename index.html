@@ -513,7 +513,7 @@ ${rub}
 ${AE(ex) ? '\n인쇄된 문제 글·그림은 학생 풀이가 아닙니다. 학생이 손으로 쓴 부분만 채점합니다.\n' : ''}
 채점 원칙:
 - 관대하게 채점합니다. 사소한 실수나 조금 부족한 근거는 감점하지 않거나 최소로 감점하고, 핵심 논리가 빠졌거나 틀린 경우(순환논리, 성립하지 않는 합동·닮음, 핵심 단계 누락)에만 크게 감점합니다.
-- 부분 점수를 줍니다: 채점 기준 항목마다 일부만 해냈으면 0.5점 단위로 일부 점수를 줍니다. 최종 답이 틀려도 맞게 해낸 단계(알맞은 보조선·그림, 바르게 찾은 합동·닮음·성질, 올바른 식 세우기, 맞는 중간 결과)는 각각 점수를 줍니다.
+- 부분 점수를 줍니다: 채점 기준 항목마다 일부만 해냈으면 1점 단위(정수)로 일부 점수를 줍니다. 모든 점수는 정수로 씁니다. 최종 답이 틀려도 맞게 해낸 단계(알맞은 보조선·그림, 바르게 찾은 합동·닮음·성질, 올바른 식 세우기, 맞는 중간 결과)는 각각 점수를 줍니다.
 - 학생이 문제와 관련된 의미 있는 풀이를 했다면(맞는 성질·보조선·식을 하나라도 썼다면) 0점을 주지 않습니다 — 적어도 만점의 20% 정도는 줍니다. 0점은 빈칸이거나 문제와 관계없는 내용, 처음부터 끝까지 틀린 내용일 때만 줍니다.
 - 모범 풀이와 다른 풀이도 논리가 완결되면 만점입니다(좌표·벡터·삼각함수 풀이 포함). 오기로 보이는 부분은 인정하되 comment 에 적습니다.
 학생 풀이를 읽고 채점 기준 항목마다 받은 점수와 이유를 주세요. 글씨를 못 읽거나 판단이 애매하면 confidence 를 낮춥니다.
@@ -522,7 +522,8 @@ ${AE(ex) ? '\n인쇄된 문제 글·그림은 학생 풀이가 아닙니다. 학
   const j = parseJSON(await callAI(content, { max: 4000, system: '당신은 공정하고 꼼꼼한 수학 서술형 채점자입니다. 요청한 JSON 하나만 출력합니다.' }));
   let total = Number(j.total);
   if (!isFinite(total)) total = sum((j.criteria || []).map(c => c.awarded));
-  j.total = Math.max(0, Math.min(ep, Math.round(total * 2) / 2));
+  j.total = Math.max(0, Math.min(ep, Math.round(total)));   // 11/3: 1점 단위
+  (j.criteria || []).forEach(c => { if (isFinite(Number(c.awarded))) c.awarded = Math.round(Number(c.awarded)); });
   j.marks = (Array.isArray(j.marks) ? j.marks : []).filter(m => m && Array.isArray(m.bbox) && m.bbox.length === 4 && m.bbox.every(v => isFinite(Number(v)))).slice(0, 3)
     .map(m => ({ bbox: m.bbox.map(v => { v = Number(v); return Math.max(0, Math.min(1, v > 1.5 ? v / 1000 : v)); }), note: String(m.note || '').slice(0, 40) }));
   return j;
