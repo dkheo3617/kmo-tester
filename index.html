@@ -1262,7 +1262,7 @@ const SIM = {
 };
 // 문항 번호 입력: "12, 15-18, 21~23번" → ['12','15-18','21-23'] (교재에 「15-18」 같은 번호가 있으면 그 번호, 없으면 15~18 범위)
 const normNo = x => String(x ?? '').replace(/\s|번/g, '').replace(/[~∼〜]/g, '-').replace(/\.$/, '');
-const parseNos = str => String(str || '').split(/[,，;\s]+/).map(normNo).filter(Boolean).slice(0, 80);
+const parseNos = str => String(str || '').replace(/(\d)\s*[~∼〜\-]\s*(\d)/g, '$1-$2').split(/[,，;\s]+/).map(normNo).filter(x => x && x !== '-').slice(0, 80);   // 11/2: 「1 ~ 90」처럼 띄어 써도 범위로
 function bookCands(book, opt){
   const pages = Object.keys(book.index ? book.index.pages : {}).map(Number).sort((a, b) => a - b).filter(p => { const pg = book.index.pages[p];
     if (pg.kind !== 'problem') return false;
@@ -1275,7 +1275,7 @@ function bookCands(book, opt){
 function expandNos(want, cands){
   const lits = new Set(cands.map(c => normNo(c.no))), out = [];
   for (const w of want){ const m = /^(\d+)-(\d+)$/.exec(w);
-    if (lits.has(w) || !m || +m[2] < +m[1] || +m[2] - +m[1] > 80) out.push(w); else for (let k = +m[1]; k <= +m[2]; k++) out.push(String(k)); }
+    if (lits.has(w) || !m || +m[2] < +m[1] || +m[2] - +m[1] > 400) out.push(w); /* 11/2: 1-90 처럼 큰 범위도 펼침(예전 80개까지) */ else for (let k = +m[1]; k <= +m[2]; k++) out.push(String(k)); }
   return [...new Set(out)];
 }
 const sameNo = (a, b) => { a = normNo(a); b = normNo(b); return a === b || (/^\d+$/.test(a) && /^\d+$/.test(b) && +a === +b); };
