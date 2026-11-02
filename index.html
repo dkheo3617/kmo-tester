@@ -1000,8 +1000,8 @@ async function gradedHTML(ex, nos, summaryOnly){
         return `<tr><td style="${td}">${i+1}</td><td style="${td}">${esc(ex.answers[i] ?? '')}</td><td style="${td}">${c.read == null || c.read === '' ? '–' : esc(c.read)}</td><td style="${td}">${mk}</td><td style="${td}">${c.st === 'ok' ? (Number(ex.ansPts[i]) || 0) : 0} / ${Number(ex.ansPts[i]) || 0}</td>${EQ.length ? `<td style="${td}">${c.ep ? `${c.es ?? '–'} / ${c.ep}` : ''}</td>` : ''}</tr>`; }).join('')}</table>`}
       ${EQ.length ? `<table style="border-collapse:collapse;width:100%"><tr><th style="${th}">${AE(ex) ? '문항' : '서술형'}</th><th style="${th}">점수</th><th style="${th};text-align:left">채점 내용</th></tr>` : ''}
       ${EQ.map(i => { const c = g.cells[i], ai = c.ai || {}, rub = (ex.probs[i] || {}).rubric || [];
-        const crit = (ai.criteria || []).map(k => `${esc((rub[k.index-1] || {}).desc || ('기준 ' + k.index))} <b>${esc(k.awarded)}${rub[k.index-1] ? '/' + esc(rub[k.index-1].points) : ''}</b>${k.reason ? ` — ${esc(k.reason)}` : ''}`).join('<br>');
-        return `<tr><td style="${td}">${i+1}번</td><td style="${td}"><b>${c.es ?? '–'}</b> / ${ex.essPts[i]}</td><td style="${td};text-align:left;white-space:normal;font-size:9pt">${ai.comment ? `<div style="margin-bottom:1mm">${esc(ai.comment)}</div>` : ''}<span style="color:#555">${crit}</span>${r.essManual && r.essManual[i] ? '<div style="color:#888">(선생님이 점수 입력)</div>' : ''}</td></tr>`; }).join('')}${EQ.length ? '</table>' : ''}</div>`);
+        const crit = (ai.criteria || []).map(k => `${mathHTML((rub[k.index-1] || {}).desc || ('기준 ' + k.index))} <b>${esc(k.awarded)}${rub[k.index-1] ? '/' + esc(rub[k.index-1].points) : ''}</b>${k.reason ? ` — ${mathHTML(k.reason)}` : ''}`).join('<br>');
+        return `<tr><td style="${td}">${i+1}번</td><td style="${td}"><b>${c.es ?? '–'}</b> / ${ex.essPts[i]}</td><td style="${td};text-align:left;white-space:normal;font-size:9pt">${ai.comment ? `<div style="margin-bottom:1mm">${mathHTML(ai.comment)}</div>` : ''}<span style="color:#555">${crit}</span>${r.essManual && r.essManual[i] ? '<div style="color:#888">(선생님이 점수 입력)</div>' : ''}</td></tr>`; }).join('')}${EQ.length ? '</table>' : ''}</div>`);
     for (const i of EQ){
       const img = await getImg(imgKey(ex.id, no, i)); if (!img) continue;
       const c = g.cells[i], full = c.es != null && Number(c.es) >= Number(ex.essPts[i]), ai = c.ai || {};
@@ -1017,7 +1017,7 @@ async function gradedHTML(ex, nos, summaryOnly){
           const L = x0 * W, T = y1 * H, Wd = Math.max(8, (x1 - x0) * W), n = Math.max(2, Math.round(Wd / 3));
           let d = 'M0 1.5'; for (let t = 0; t < n; t++) d += ` q ${Wd/n/2} ${t % 2 ? 1.5 : -1.5} ${Wd/n} 0`;
           ov.push(`<svg style="position:absolute;left:${L}mm;top:${T - 0.5}mm;width:${Wd}mm;height:3mm;overflow:visible" viewBox="0 0 ${Wd} 3"><path d="${d}" fill="none" stroke="${RED}" stroke-width="0.45"/></svg>`);
-          ov.push(`<div style="position:absolute;left:${Math.min(W - 60, L + Wd + 1)}mm;top:${T - 4}mm;width:58mm;font-family:${PEN};color:${RED};font-size:4.6mm;line-height:1.1">${lab} ${esc(m.note)}</div>`); });
+          ov.push(`<div style="position:absolute;left:${Math.min(W - 60, L + Wd + 1)}mm;top:${T - 4}mm;width:58mm;font-family:${PEN};color:${RED};font-size:4.6mm;line-height:1.1">${lab} ${mathHTML(m.note)}</div>`); });
       }
       const blk = `<div style="position:relative;width:${W}mm;height:${H}mm;margin:0 auto"><img src="${img}" style="width:${W}mm;height:${H}mm;display:block">${ov.join('')}</div>
         <div style="text-align:center;color:#999;font-size:8pt;margin:2mm 0 6mm">${esc(nameOf(no) || no)} · ${i+1}번</div>`;
@@ -1030,7 +1030,8 @@ async function gradedHTML(ex, nos, summaryOnly){
       if (b){ cur.push(b.blk); hh += b.h; }
     }
   }
-  return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4;margin:12mm 15mm}body{margin:0;font-family:'Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic',sans-serif;color:#111}
+  const kcss = document.querySelectorAll('style')[0].textContent;   // 11/3: 채점 내용·첨삭의 수식($…$)을 KaTeX로
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${kcss}</style><style>.katex{font-size:1.05em}@page{size:A4;margin:12mm 15mm}body{margin:0;font-family:'Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic',sans-serif;color:#111}
     .pg{break-after:page}.pg:last-child{break-after:auto}.pg.sc{padding-top:8mm}</style></head><body>${pages.join('')}</body></html>`;
 }
 
@@ -2363,7 +2364,7 @@ function figNoFigClick(i){
   Promise.resolve(runBusy(`${i+1}번 그림 없이 풀리게 문장 고치는 중…`, async () => { res = await aiNoFig(ex, i); })).then(() => {
     if (!res) return;
     if (!res.ok){
-      openModal(`<h2>${i+1}번 그림 빼기</h2><p>AI가 이 그림은 글로 옮기기 어렵다고 했습니다.</p><p class="mute">${esc(res.reason)}</p>
+      openModal(`<h2>${i+1}번 그림 빼기</h2><p>AI가 이 그림은 글로 옮기기 어렵다고 했습니다.</p><p class="mute">${mathHTML(res.reason)}</p>
         <p>그림을 그대로 두는 것을 권합니다.</p>
         <div class="row"><button class="btn" id="nfKeep">그림 그대로 두기</button><button class="btn red" id="nfOnly">그래도 그림만 빼기</button></div>`);
       document.getElementById('nfKeep').onclick = closeModal;
@@ -2663,8 +2664,8 @@ function bind(){
     openModal(`<h2>${esc(no)}번 ${esc(nameOf(no))} · ${+i+1}번 서술 (${ex.essPts[i]}점)</h2>
       ${img ? `<img src="${img}" alt="서술 풀이">` : '<p class="mute">서술 풀이 쪽이 아직 올라오지 않았습니다.</p>'}
       ${ai ? `<div style="margin-top:8px"><b>AI ${esc(ai.total)}점</b> <span class="mute">확신 ${Math.round((ai.confidence || 0)*100)}%</span>
-        <ul style="margin:6px 0 0 18px;padding:0">${(ai.criteria || []).map(c => `<li>${esc((rub[c.index-1] || {}).desc || ('기준 ' + c.index))}: <b>${esc(c.awarded)}</b>${rub[c.index-1] ? '/' + esc(rub[c.index-1].points) : ''} — ${esc(c.reason || '')}</li>`).join('')}</ul>
-        ${ai.comment ? `<p>코멘트: ${esc(ai.comment)}</p>` : ''}${ai.transcription ? `<details><summary class="mute">AI가 읽은 풀이</summary><p style="white-space:pre-wrap">${esc(ai.transcription)}</p></details>` : ''}</div>` : ''}
+        <ul style="margin:6px 0 0 18px;padding:0">${(ai.criteria || []).map(c => `<li>${mathHTML((rub[c.index-1] || {}).desc || ('기준 ' + c.index))}: <b>${esc(c.awarded)}</b>${rub[c.index-1] ? '/' + esc(rub[c.index-1].points) : ''} — ${mathHTML(c.reason || '')}</li>`).join('')}</ul>
+        ${ai.comment ? `<p>코멘트: ${mathHTML(ai.comment)}</p>` : ''}${ai.transcription ? `<details><summary class="mute">AI가 읽은 풀이</summary><p style="white-space:pre-wrap">${esc(ai.transcription)}</p></details>` : ''}</div>` : ''}
       <div class="row" style="margin-top:8px"><label>점수 <input id="esIn" value="${esc((r.ess || {})[i] ?? '')}" style="width:80px" inputmode="decimal"></label><button class="btn" id="esSave">저장</button>
       ${img && aiReady() ? `<button class="btn gray" id="esRe">AI로 다시 채점</button>` : ''}<button class="btn gray" id="esClose">닫기</button></div>`);
     $('esClose').onclick = closeModal;
