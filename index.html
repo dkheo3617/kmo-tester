@@ -992,34 +992,51 @@ async function gradedHTML(ex, nos, summaryOnly){
     <tr><td style="${td}" colspan="2"><b>평균</b></td>${AE(ex) ? '' : `<td style="${td}">${tot.length ? (sum(rows.map(x => x.g.ansTotal)) / tot.length).toFixed(1) : '-'}</td>`}${avgQ.map(a => `<td style="${td}">${a}</td>`).join('')}<td style="${td}"><b>${avg}</b></td></tr></table>
     ${rows.some(x => x.g.essPend) ? '<p style="font-size:9pt;color:#666">* 점수가 다 들어가지 않은 학생</p>' : ''}</div>`);
   for (const no of (summaryOnly ? [] : nos)){
-    const r = R[no], g = gradeStudent(r, ex), essBlk = [];
+    const r = R[no], g = gradeStudent(r, ex), essBlk = [], SE = !AE(ex) && r.shortAI && r.shortAI.sig === shortSig(ex, r) ? r.shortAI : null;
     pages.push(`<div class="pg">${head(`${nameOf(no) || no + '번'}  ${g.total} / ${totalOf(ex)}`, `${esc(ex.name)} · ${esc(no)}번`)}
       ${AE(ex) ? '' : `<div style="font-size:9.5pt;color:#444;margin:-2mm 0 3mm">정답 ${g.ansTotal} / ${sum(ex.ansPts)}점${EQ.length ? ` · 서술 ${g.essTotal} / ${sum(ex.essPts)}점` : ''} · 맞힌 문항 ${g.cells.filter(c => c.st === 'ok').length} / ${ex.n}</div>
-      <table style="border-collapse:collapse;width:100%;margin-bottom:4mm"><tr><th style="${th}">문항</th><th style="${th}">정답</th><th style="${th}">학생 답</th><th style="${th}">채점</th><th style="${th}">점수</th>${EQ.length ? `<th style="${th}">서술</th>` : ''}</tr>
+      <table style="border-collapse:collapse;width:100%;margin-bottom:4mm"><tr><th style="${th}">문항</th><th style="${th}">정답</th><th style="${th}">학생 답</th><th style="${th}">채점</th><th style="${th}">점수</th>${EQ.length ? `<th style="${th}">서술</th>` : ''}${SE ? `<th style="${th};text-align:left">평가</th>` : ''}</tr>
       ${g.cells.map((c, i) => { const mk = c.st === 'ok' ? '<b style="color:#1a7f37">○</b>' : c.st === 'bad' ? `<b style="color:${RED}">✕</b>` : c.st === 'pend' ? '<span style="color:#b7791f">확인</span>' : '<span style="color:#999">무응답</span>';
-        return `<tr><td style="${td}">${i+1}</td><td style="${td}">${esc(ex.answers[i] ?? '')}</td><td style="${td}">${c.read == null || c.read === '' ? '–' : esc(c.read)}</td><td style="${td}">${mk}</td><td style="${td}">${c.st === 'ok' ? (Number(ex.ansPts[i]) || 0) : 0} / ${Number(ex.ansPts[i]) || 0}</td>${EQ.length ? `<td style="${td}">${c.ep ? `${c.es ?? '–'} / ${c.ep}` : ''}</td>` : ''}</tr>`; }).join('')}</table>`}
+        return `<tr><td style="${td}">${i+1}</td><td style="${td}">${esc(ex.answers[i] ?? '')}</td><td style="${td}">${c.read == null || c.read === '' ? '–' : esc(c.read)}</td><td style="${td}">${mk}</td><td style="${td}">${c.st === 'ok' ? (Number(ex.ansPts[i]) || 0) : 0} / ${Number(ex.ansPts[i]) || 0}</td>${EQ.length ? `<td style="${td}">${c.ep ? `${c.es ?? '–'} / ${c.ep}` : ''}</td>` : ''}${SE ? `<td style="${td};text-align:left;white-space:normal;font-size:8.5pt;color:#333">${mathHTML((SE.items || {})[i+1] || '')}</td>` : ''}</tr>`; }).join('')}</table>
+      ${SE && SE.summary ? `<div style="border:0.3mm solid #c9d3e6;background:#f6f8fc;border-radius:2mm;padding:2.5mm 3mm;font-size:9.5pt;margin:0 0 4mm"><b>단답형 평가</b> ${mathHTML(SE.summary)}</div>` : ''}`}
       ${EQ.length ? `<table style="border-collapse:collapse;width:100%"><tr><th style="${th}">${AE(ex) ? '문항' : '서술형'}</th><th style="${th}">점수</th><th style="${th};text-align:left">채점 내용</th></tr>` : ''}
       ${EQ.map(i => { const c = g.cells[i], ai = c.ai || {}, rub = (ex.probs[i] || {}).rubric || [];
         const crit = (ai.criteria || []).map(k => `${mathHTML((rub[k.index-1] || {}).desc || ('기준 ' + k.index))} <b>${esc(k.awarded)}${rub[k.index-1] ? '/' + esc(rub[k.index-1].points) : ''}</b>${k.reason ? ` — ${mathHTML(k.reason)}` : ''}`).join('<br>');
         return `<tr><td style="${td}">${i+1}번</td><td style="${td}"><b>${c.es ?? '–'}</b> / ${ex.essPts[i]}</td><td style="${td};text-align:left;white-space:normal;font-size:9pt">${ai.comment ? `<div style="margin-bottom:1mm">${mathHTML(ai.comment)}</div>` : ''}<span style="color:#555">${crit}</span>${r.essManual && r.essManual[i] ? '<div style="color:#888">(선생님이 점수 입력)</div>' : ''}</td></tr>`; }).join('')}${EQ.length ? '</table>' : ''}</div>`);
     for (const i of EQ){
-      const img = await getImg(imgKey(ex.id, no, i)); if (!img) continue;
+      const img0 = await getImg(imgKey(ex.id, no, i)); if (!img0) continue;
       const c = g.cells[i], full = c.es != null && Number(c.es) >= Number(ex.essPts[i]), ai = c.ai || {};
-      // 스캔 쪽 그림 = 시험지 (15,51)~(195,281)mm, 180×230mm → 종이 위에 같은 크기로 놓음
-      let W = 180, H = 230; const ov = [];
-      if (!AE(ex)){ const sz = await new Promise(res => { const im = new Image(); im.onload = () => res([im.naturalWidth, im.naturalHeight]); im.onerror = () => res([180, 100]); im.src = img; });
-        H = Math.round(180 * sz[1] / sz[0]); if (H > 240){ W = Math.round(W * 240 / H); H = 240; } }
+      // 11/3: 표시(○/△)·점수·물결 밑줄은 풀이 그림 위에 직접 그려 넣고(인쇄·PDF 모두 같게), 첨삭 글은 오른쪽 칸에 — 풀이를 가리지 않게
+      const SIDE = 44, GAP = 3, im = await new Promise(res => { const o = new Image(); o.onload = () => res(o); o.onerror = () => res(null); o.src = img0; });
+      if (!im) continue;
+      let W = 180 - SIDE - GAP, H = Math.round(W * im.naturalHeight / im.naturalWidth); if (H > 240){ W = Math.round(W * 240 / H); H = 240; }
+      const side = [], marks = full || c.es == null ? [] : (ai.marks || []).slice(0, 3);
+      const cv = document.createElement('canvas'); cv.width = im.naturalWidth; cv.height = im.naturalHeight;
+      const x = cv.getContext('2d'), k = cv.width / W;      // mm → 픽셀
+      x.drawImage(im, 0, 0);
       if (c.es != null){
-        ov.push(full ? `<svg style="position:absolute;left:0mm;top:-3mm;width:30mm;height:22mm" viewBox="0 0 30 22"><ellipse cx="15" cy="11" rx="12.5" ry="9" fill="none" stroke="rgba(232,52,84,.45)" stroke-width="2.6"/></svg>`
-                     : `<svg style="position:absolute;left:0mm;top:-5mm;width:30mm;height:24mm" viewBox="0 0 30 24"><path d="M15 2 L28 22 L2 22 Z" fill="none" stroke="rgba(232,52,84,.45)" stroke-width="2.6" stroke-linejoin="round"/></svg>`);
-        ov.push(`<div style="position:absolute;right:8mm;bottom:5mm;font-family:${PEN};color:${RED};font-size:11mm;font-weight:700">${esc(c.es)}/${esc(ex.essPts[i])}</div>`);
-        (full ? [] : (ai.marks || [])).forEach((m, k) => { const [x0, y0, x1, y1] = m.bbox, lab = 'ⓐⓑⓒ'[k];
-          const L = x0 * W, T = y1 * H, Wd = Math.max(8, (x1 - x0) * W), n = Math.max(2, Math.round(Wd / 3));
-          let d = 'M0 1.5'; for (let t = 0; t < n; t++) d += ` q ${Wd/n/2} ${t % 2 ? 1.5 : -1.5} ${Wd/n} 0`;
-          ov.push(`<svg style="position:absolute;left:${L}mm;top:${T - 0.5}mm;width:${Wd}mm;height:3mm;overflow:visible" viewBox="0 0 ${Wd} 3"><path d="${d}" fill="none" stroke="${RED}" stroke-width="0.45"/></svg>`);
-          ov.push(`<div style="position:absolute;left:${Math.min(W - 60, L + Wd + 1)}mm;top:${T - 4}mm;width:58mm;font-family:${PEN};color:${RED};font-size:4.6mm;line-height:1.1">${lab} ${mathHTML(m.note)}</div>`); });
+        x.strokeStyle = RED; x.fillStyle = RED; x.lineCap = 'round'; x.lineJoin = 'round'; x.globalAlpha = 0.9;
+        const mx = 2 * k, my = (AE(ex) ? 1.2 : 6.2) * k, s = k;            // 「7번 서술형」 머리표 바로 아래(문항 번호에 표시하듯)
+        x.lineWidth = 0.55 * k; x.beginPath();
+        if (full){ x.moveTo(mx + 5.2*s, my + 2.6*s); x.bezierCurveTo(mx + 9*s, my + 0.9*s, mx + 16.8*s, my + 1.2*s, mx + 18.3*s, my + 5.6*s);
+          x.bezierCurveTo(mx + 19.6*s, my + 9.7*s, mx + 14.4*s, my + 12.9*s, mx + 9.4*s, my + 12.6*s); x.bezierCurveTo(mx + 4.1*s, my + 12.3*s, mx + 0.9*s, my + 9.4*s, mx + 1.4*s, my + 6.3*s);
+          x.bezierCurveTo(mx + 1.8*s, my + 3.9*s, mx + 4.6*s, my + 2.2*s, mx + 8.1*s, my + 1.6*s); }
+        else { const t = 0.82; x.moveTo(mx + 9.8*s*t, my + 1.4*s*t); x.quadraticCurveTo(mx + 13.5*s*t, my + 7.3*s*t, mx + 17.6*s*t, my + 13.2*s*t);
+          x.quadraticCurveTo(mx + 9.6*s*t, my + 13.9*s*t, mx + 1.6*s*t, my + 13.4*s*t); x.quadraticCurveTo(mx + 5.6*s*t, my + 7.4*s*t, mx + 9.2*s*t, my + 1.9*s*t); x.lineTo(mx + 10.6*s*t, my + 2.8*s*t); }
+        x.stroke();
+        x.font = `700 ${9 * k}px ${PEN}`; x.textAlign = 'right'; x.textBaseline = 'alphabetic'; x.fillText(`${c.es}/${ex.essPts[i]}`, cv.width - 3 * k, cv.height - 2.5 * k);
+        let lastBot = 0; x.textAlign = 'left';
+        marks.forEach((m, n) => { const [x0, , x1, y1] = m.bbox || [0, 0, 0, 0], lab = 'ⓐⓑⓒ'[n];
+          const L = Math.max(0, x0 * W), T = Math.min(H - 2, y1 * H), Wd = Math.max(8, Math.min(W - L - 5, (x1 - x0) * W)), seg = Math.max(2, Math.round(Wd / 3));
+          x.lineWidth = 0.5 * k; x.beginPath(); x.moveTo(L * k, (T + 1) * k);
+          for (let q = 0; q < seg; q++){ const a = L + Wd * q / seg, b = L + Wd * (q + 1) / seg; x.quadraticCurveTo((a + b) / 2 * k, (T + 1 + (q % 2 ? 1.2 : -1.2)) * k, b * k, (T + 1) * k); }
+          x.stroke(); x.font = `${4.2 * k}px ${PEN}`; x.fillText(lab, (L + Wd + 0.6) * k, (T + 1.6) * k);
+          const top = Math.max(lastBot, T - 3); lastBot = top + 3 + 4.8 * Math.ceil(String(m.note || '').length / 9);
+          side.push(`<div style="position:absolute;left:1.5mm;top:${top}mm;width:${SIDE - 2}mm;font-family:${PEN};color:${RED};font-size:4.4mm;line-height:1.15">${lab} ${mathHTML(m.note)}</div>`); });
       }
-      const blk = `<div style="position:relative;width:${W}mm;height:${H}mm;margin:0 auto"><img src="${img}" style="width:${W}mm;height:${H}mm;display:block">${ov.join('')}</div>
+      const img = cv.toDataURL('image/jpeg', 0.85);
+      const blk = `<div style="display:flex;gap:${GAP}mm;justify-content:center"><div style="width:${W}mm;height:${H}mm;flex:none"><img src="${img}" style="width:${W}mm;height:${H}mm;display:block"></div>
+          <div style="position:relative;width:${SIDE}mm;min-height:${H}mm;flex:none;border-left:0.3mm dashed #e6b3bb">${side.join('')}</div></div>
         <div style="text-align:center;color:#999;font-size:8pt;margin:2mm 0 6mm">${esc(nameOf(no) || no)} · ${i+1}번</div>`;
       if (AE(ex)) pages.push(`<div class="pg sc">${blk}</div>`); else essBlk.push({ blk, h: H + 10 });
     }
@@ -1035,6 +1052,36 @@ async function gradedHTML(ex, nos, summaryOnly){
     .pg{break-after:page}.pg:last-child{break-after:auto}.pg.sc{padding-top:8mm}</style></head><body>${pages.join('')}</body></html>`;
 }
 
+
+
+// 11/3: 단답형(정답을 OMR에 적는 문항) 평가 — 틀리거나 비운 문항마다 짧은 평가 + 단답형 총평. 학생 이름은 AI에 보내지 않음.
+const shortSig = (ex, r) => JSON.stringify([ex.answers, ex.ansPts, gradeStudent(r, ex).cells.map(c => c.read)]);
+async function aiShortEval(ex, r){
+  const g = gradeStudent(r, ex), rows = [];
+  for (let i = 0; i < ex.n; i++){ if (!(Number(ex.ansPts[i]) > 0)) continue; const p = ex.probs[i] || {}, c = g.cells[i];
+    rows.push(`${i+1}번 [${p.area || '단원 정보 없음'}] 문제: ${String(p.statement || p.transcribed || '(그림 문제)').replace(/\s+/g, ' ').slice(0, 350)}\n   정답 ${ex.answers[i] || '?'} / 학생 답 ${c.read == null || c.read === '' ? '(비움)' : c.read} → ${c.st === 'ok' ? '정답' : c.st === 'bad' ? '오답' : c.st === 'pend' ? '판독 불확실' : '무응답'}`); }
+  if (!rows.length) return null;
+  const j = parseJSON(await callAI([{ type: 'text', text: `KMO·영재고 대비 학원 시험의 단답형(정답 숫자만 OMR에 표시) 결과입니다. 한 학생의 문항별 결과를 보고 평가를 써 주세요.
+${rows.join('\n')}
+
+- 오답·무응답 문항마다 note 를 25자 안팎으로: 학생 답과 정답을 비교해 짐작되는 실수(예: 경우 하나 빠뜨림, 단위·조건 착각, 계산 실수)나 다시 볼 개념. 짐작이 어려우면 다시 볼 개념만.
+- 맞힌 문항은 note 를 비웁니다("").
+- summary: 단답형 전체에 대한 2문장 — 잘한 단원과 보완할 단원, 다음에 할 공부.
+- 수식은 $...$ 로 씁니다.
+출력: {"items":[{"no":1,"note":""}],"summary":"..."}` }], { max: 2500, system: SYS }));
+  const items = {}; (j.items || []).forEach(it => { const n = Number(it.no); if (n >= 1 && n <= ex.n && String(it.note || '').trim()) items[n] = String(it.note).trim().slice(0, 80); });
+  return { sig: shortSig(ex, r), items, summary: String(j.summary || '').trim().slice(0, 400), at: Date.now() };
+}
+async function ensureShortEval(ex, nos){
+  if (AE(ex) || !aiReady() || !ex.ansPts.some(v => Number(v) > 0)) return;
+  const R = res(), todo = nos.filter(no => R[no] && !(R[no].shortAI && R[no].shortAI.sig === shortSig(ex, R[no])));
+  for (let k = 0; k < todo.length; k++){
+    if (CANCELLED) throw cancelErr();
+    BUSY = `단답형 평가 쓰는 중… ${k + 1}/${todo.length} (${nameOf(todo[k]) || todo[k]})`; render();
+    try { const v = await aiShortEval(ex, R[todo[k]]); if (v) { R[todo[k]].shortAI = v; save(); } }
+    catch(e){ if (CANCELLED || e.cancelled) throw e; LOG.push({ t: 'warn', m: `${esc(nameOf(todo[k]) || todo[k])} 단답형 평가 실패: ${esc(e.message || e)}` }); }
+  }
+}
 
 // 11/3: 채점 결과지를 학생별 PDF 파일로 — 학생마다 PDF 하나, 여러 명이면 반 요약과 함께 zip 하나로 내려받기
 const LIBS = { jspdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', h2c: 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', zip: 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js' };
@@ -1068,6 +1115,7 @@ async function htmlToPDF(html){
 async function downloadGraded(ex, nos){
   const R = res(); nos = (nos || Object.keys(R).sort()).filter(no => R[no]);
   if (!nos.length) return toast('채점한 학생이 없습니다');
+  await ensureShortEval(ex, nos);
   const base = safeName(`${ex.date || ''} ${ex.name}`.trim());
   const fileOf = no => safeName(`${no}_${nameOf(no) || no + '번'}_${base}.pdf`);
   if (nos.length === 1){ BUSY = `결과지 PDF 만드는 중… (${nameOf(nos[0]) || nos[0]})`; render();
@@ -2729,10 +2777,10 @@ function bind(){
     $('doPrintAE').onclick = async () => printHTML(await paperScanHTML(exam(), printList(exam()))); }
   document.querySelectorAll('.pOpt').forEach(el => el.onchange = () => { const o = S.settings.printOpt = S.settings.printOpt || { names: true, extra: 0, copies: 1 };
     o[el.dataset.k] = el.type === 'checkbox' ? el.checked : (+el.value || 0); save(); render(); });
-  if ($('gPdfAll')) $('gPdfAll').onclick = async () => { const nos = Object.keys(res()).sort(); printHTML(await gradedHTML(exam(), nos)); };
+  if ($('gPdfAll')) $('gPdfAll').onclick = () => runBusy('결과지 만드는 중…', async () => { const nos = Object.keys(res()).sort(); await ensureShortEval(exam(), nos); BUSY = ''; printHTML(await gradedHTML(exam(), nos)); });
   if ($('gZip')) $('gZip').onclick = () => runBusy('결과지 PDF 만드는 중…', () => downloadGraded(exam()));
   document.querySelectorAll('[data-gdl]').forEach(b => b.onclick = () => runBusy('결과지 PDF 만드는 중…', () => downloadGraded(exam(), [b.dataset.gdl])));
-  document.querySelectorAll('[data-gpdf]').forEach(b => b.onclick = async () => printHTML(await gradedHTML(exam(), [b.dataset.gpdf])));
+  document.querySelectorAll('[data-gpdf]').forEach(b => b.onclick = () => runBusy('결과지 만드는 중…', async () => { await ensureShortEval(exam(), [b.dataset.gpdf]); BUSY = ''; printHTML(await gradedHTML(exam(), [b.dataset.gpdf])); }));
   if ($('lCls')){ $('lCls').onchange = () => { S.settings.listCls = $('lCls').value; save(); render(); };
     const pick = id => { S.current = id; save(); return exam(); };
     document.querySelectorAll('[data-lp]').forEach(b => b.onclick = () => openViewer(pick(b.dataset.lp), 'paper'));
