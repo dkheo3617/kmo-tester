@@ -430,7 +430,7 @@ function fixJSONEscapes(t){   // AI가 LaTeX 역슬래시(\frac, \overline …)�
   return out;
 }
 const imgPart = dataURL => ({ type: 'image', source: { type: 'base64', media_type: dataURL.slice(5, dataURL.indexOf(';')), data: dataURL.slice(dataURL.indexOf(',') + 1) } });
-const SYS = '당신은 한국수학올림피아드(KMO)·영재학교(영재고) 입시 대비 학원의 수학 선생님입니다. 한국어로 쓰고, 수식은 LaTeX를 $...$ 로 감쌉니다. 요청한 JSON 하나만 출력하고 다른 말은 쓰지 않습니다.';
+const SYS = '당신은 한국수학올림피아드(KMO)·영재학교(영재고) 입시 대비 학원의 수학 선생님입니다. 한국어로 쓰고, 수식은 LaTeX를 $...$ 로 감쌉니다. 해설·모범 풀이·채점 기준은 중학생이 이해하도록 중학교 교육과정 개념으로 씁니다(헤론의 공식, 산술·기하 평균 부등식, 삼각함수, 미적분 같은 고등학교 개념은 쓰지 않고, 피타고라스 정리·닮음·넓이·완전제곱식·이차함수의 최대최소 같은 중학 개념으로 풉니다. 꼭 필요하면 중학 수준으로 유도해 보여 줍니다). 요청한 JSON 하나만 출력하고 다른 말은 쓰지 않습니다.';   // 11/3: 해설은 중등 개념으로
 
 async function aiGenerate(ex, opt, refImgs){
   if (AE(ex)){
@@ -1094,21 +1094,43 @@ function loadLib(k){
   return libLoaded[k];
 }
 const safeName = t => String(t || '').replace(/[\\/:*?"<>|]/g, '_').trim();
-async function htmlToPDF(html){
+async function htmlToPDF(html, opt = {}){   // opt.sel='.page', full=true: A4 한 쪽짜리 문서(시험지·답안지)를 쪽 그대로
   await loadLib('jspdf'); await loadLib('h2c');
   const fr = document.createElement('iframe');
-  fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:180mm;height:400mm;border:0;background:#fff';
+  fr.style.cssText = `position:fixed;left:-10000px;top:0;width:${opt.full ? 210 : 180}mm;height:400mm;border:0;background:#fff`;   // flow: 흐르는 문서(시험지·해설지)는 180mm 폭으로 찍어 A4 높이마다 빈 줄에서 자름
   document.body.appendChild(fr);
   try {
-    await new Promise(ok => { fr.onload = ok; fr.srcdoc = html.replace('</head>', '<style>html,body{background:#fff;margin:0}.pg{padding:0 0 4mm}</style></head>'); });
+    await new Promise(ok => { fr.onload = ok; fr.srcdoc = html.replace('</head>', `<style>html,body{background:#fff !important;margin:0}.pg{padding:0 0 4mm}${opt.full ? `${opt.sel}{margin:0 !important;box-shadow:none !important}` : ''}</style></head>`); });
     const doc = fr.contentDocument; try { await doc.fonts.ready; } catch(e){}
+    // 11/3: html2canvas 는 KaTeX 의 √ 등(SVG로 그린 부분)을 깨뜨림 → 같은 크기의 그림(img)으로 바꿔 놓고 찍음
+    doc.querySelectorAll('.katex svg').forEach(sv => { const box = sv.getBoundingClientRect(), par = sv.parentElement.getBoundingClientRect();
+      const w = Math.max(1, Math.ceil(Math.min(box.width, par.width) || par.width)), h = Math.max(1, Math.ceil(box.height));
+      const c = sv.cloneNode(true); c.setAttribute('xmlns', 'http://www.w3.org/2000/svg'); c.setAttribute('width', w); c.setAttribute('height', h);
+      const im = doc.createElement('img'); im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(c.outerHTML);
+      im.style.cssText = `display:block;width:${w}px;height:${h}px;max-width:none`; sv.replaceWith(im); });
     await Promise.all([...doc.images].map(im => im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r; })));
-    const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', compress: true }), pages = [...doc.querySelectorAll('.pg')];
+    const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', compress: true }), pages = [...doc.querySelectorAll(opt.sel || '.pg')];
+    if (!pages.length) throw new Error('PDF로 만들 쪽이 없습니다');
     for (let k = 0; k < pages.length; k++){
       if (CANCELLED) throw cancelErr();
       const cv = await window.html2canvas(pages[k], { scale: 2, backgroundColor: '#fff', useCORS: true, logging: false, windowWidth: pages[k].ownerDocument.documentElement.clientWidth });
-      let w = 180, h = w * cv.height / cv.width; if (h > 273){ w = w * 273 / h; h = 273; }
       if (k) pdf.addPage();
+      if (opt.full){ pdf.addImage(cv.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, 210, Math.min(297, 210 * cv.height / cv.width)); continue; }
+      if (opt.flow){
+        const W = cv.width, H = cv.height, PH = Math.floor(W * 273 / 180), g = cv.getContext('2d'), D = g.getImageData(0, 0, W, H).data;
+        const blank = y => { for (let x = 0; x < W; x += 3){ const i = (y * W + x) * 4; if (D[i] < 235 || D[i+1] < 235 || D[i+2] < 235) return false; } return true; };
+        let y = 0, first = true;
+        while (y < H - 4){
+          let end = Math.min(H, y + PH);
+          if (end < H){ let c = end; while (c > y + PH * 0.6 && !blank(c)) c--; if (c > y + PH * 0.6) end = c; }
+          const part = document.createElement('canvas'); part.width = W; part.height = end - y; part.getContext('2d').drawImage(cv, 0, y, W, end - y, 0, 0, W, end - y);
+          if (!first) pdf.addPage(); first = false;
+          pdf.addImage(part.toDataURL('image/jpeg', 0.9), 'JPEG', 15, 12, 180, 180 * (end - y) / W);
+          y = end;
+        }
+        continue;
+      }
+      let w = 180, h = w * cv.height / cv.width; if (h > 273){ w = w * 273 / h; h = 273; }
       pdf.addImage(cv.toDataURL('image/jpeg', 0.85), 'JPEG', (210 - w) / 2, 12, w, h);
     }
     return pdf.output('blob');
@@ -1670,19 +1692,31 @@ function examHub(){     // 지금 고른 시험: 인쇄 단추를 한 곳에
 }
 const dateKey = d => { const m = /(\d{2,4})\D+(\d{1,2})\D+(\d{1,2})/.exec(d || ''); return m ? (m[1].length === 2 ? '20' + m[1] : m[1]) + m[2].padStart(2, '0') + m[3].padStart(2, '0') : ''; };
 // 시험지 보기: 앱 안에서 띄우고 인쇄·저장
-async function docHTML(ex, kind){ return kind === 'sheet' ? answerSheetsHTML(ex, printList(ex)) : kind === 'sol' ? paperHTML(ex, 'sol') : paperHTML(ex, 'paper', printList(ex)); }
+// 11/3: orig = 원본 1부(학생 이름 없이 한 부) — 복사해서 나눠 줄 때
+async function docHTML(ex, kind, orig){ const L = orig ? [null] : printList(ex); return kind === 'sheet' ? answerSheetsHTML(ex, L) : kind === 'sol' ? paperHTML(ex, 'sol') : paperHTML(ex, 'paper', L); }
 async function openViewer(ex, kind){
   const kinds = [['paper', '시험지'], ['sol', '해설지']].concat(AE(ex) ? [] : [['sheet', '답안지']]);
+  const many = printList(ex).length;
+  let orig = !AE(ex);                    // 시험지는 원본 1부가 기본(전부 서술형은 학생 번호가 찍힌 시험지로 채점하므로 학생별이 기본)
   openModal(`<div class="row" style="justify-content:space-between;margin-bottom:10px"><div><b style="font-size:16px">${esc(ex.name)}</b> <span class="mute">${esc(ex.date)}</span></div>
     <div class="seg" id="vKind">${kinds.map(([k, l]) => `<label><input type="radio" name="vk" value="${k}"${k === kind ? ' checked' : ''}><span>${l}</span></label>`).join('')}</div>
-    <div class="row"><button class="btn" id="vPrint">인쇄</button><button class="btn gray" id="vSave">PDF로 저장</button><button class="btn gray" id="vClose">닫기</button></div></div>
+    <div class="seg" id="vCopy"><label><input type="radio" name="vc" value="1"${orig ? ' checked' : ''}><span>원본 1부</span></label><label><input type="radio" name="vc" value="0"${orig ? '' : ' checked'}><span>학생별 ${many}부</span></label></div>
+    <div class="row"><button class="btn" id="vPrint">인쇄</button><button class="btn gray" id="vSave">PDF 내려받기</button><button class="btn gray" id="vClose">닫기</button></div></div>
     <div class="vwrap"><iframe id="vFrame" title="미리보기"></iframe></div>`, true);
-  const show = async k => { kind = k; const f = document.getElementById('vFrame'); f.srcdoc = '<p style="font-family:sans-serif;padding:20px;color:#888">불러오는 중…</p>'; f.srcdoc = await docHTML(ex, k); };
+  const copyVis = () => { document.getElementById('vCopy').style.visibility = kind === 'sol' ? 'hidden' : ''; };
+  const show = async k => { kind = k; copyVis(); const f = document.getElementById('vFrame'); f.srcdoc = '<p style="font-family:sans-serif;padding:20px;color:#888">불러오는 중…</p>'; f.srcdoc = await docHTML(ex, k, orig); };
   document.querySelectorAll('[name=vk]').forEach(r => r.onchange = () => show(r.value));
+  document.querySelectorAll('[name=vc]').forEach(r => r.onchange = () => { orig = r.value === '1'; show(kind); });
   document.getElementById('vClose').onclick = closeModal;
-  document.getElementById('vPrint').onclick = async () => printHTML(await docHTML(ex, kind));
-  document.getElementById('vSave').onclick = async () => { if (!IN_ARTIFACT) await dialog('인쇄 창이 열리면 대상(프린터)을 「PDF로 저장」으로 바꾸고 저장을 누르세요.\n(아이폰은 인쇄 화면에서 공유 → 「파일에 저장」)', '확인');
-    printHTML(await docHTML(ex, kind)); };
+  document.getElementById('vPrint').onclick = async () => printHTML(await docHTML(ex, kind, orig));
+  document.getElementById('vSave').onclick = async () => {
+    const lab = kind === 'sol' ? '해설지' : kind === 'sheet' ? '답안지' : '시험지', b = document.getElementById('vSave');
+    const name = safeName(`${ex.date || ''} ${ex.name} ${lab}${kind !== 'sol' && !orig ? ' 학생별' : ''}.pdf`.trim());
+    b.disabled = true; const t = b.textContent; b.textContent = 'PDF 만드는 중…';
+    try { const h = await docHTML(ex, kind, orig), paged = /class="(page|pp)"/.test(h);
+      await saveFile(name, await htmlToPDF(h, paged ? { sel: '.page, .pp', full: true } : { sel: '.copy', flow: true })); }
+    catch(e){ toast((e && e.message) || String(e)); }
+    b.disabled = false; b.textContent = t; };
   show(kind);
 }
 function viewList(){
